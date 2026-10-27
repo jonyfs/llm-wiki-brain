@@ -57,3 +57,125 @@
 	color: var(--text-muted);
 	pointer-events: none;
 }
+.llm-wiki-brain-tools {
+	position: absolute;
+	top: var(--size-4-2);
+	right: var(--size-4-2);
+	z-index: 1;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--size-4-1);
+}
+.llm-wiki-brain-tools button[aria-pressed="true"] {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+.llm-wiki-brain-search {
+	position: absolute;
+	top: 44px;
+	left: var(--size-4-2);
+	z-index: 1;
+	display: flex;
+	gap: var(--size-4-1);
+	width: min(420px, calc(100% - var(--size-4-4)));
+}
+.llm-wiki-brain-search input[type="search"] {
+	flex: 1 1 auto;
+}
+.llm-wiki-brain-panel {
+	position: absolute;
+	top: 80px;
+	left: var(--size-4-2);
+	z-index: 1;
+	display: none;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	font-size: var(--font-ui-smaller);
+	max-width: 260px;
+}
+.llm-wiki-brain-panel.is-open {
+	display: flex;
+}
+.llm-wiki-brain-field {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+.llm-wiki-brain-field label {
+	min-width: 56px;
+	color: var(--text-muted);
+}
+.llm-wiki-brain-info,
+.llm-wiki-brain-lint {
+	position: absolute;
+	right: var(--size-4-2);
+	z-index: 1;
+	width: min(300px, calc(100% - var(--size-4-4)));
+	max-height: 45%;
+	overflow: auto;
+	padding: var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	font-size: var(--font-ui-smaller);
+}
+.llm-wiki-brain-info {
+	bottom: 36px;
+}
+.llm-wiki-brain-lint {
+	top: 44px;
+}
+.llm-wiki-brain-info-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+.llm-wiki-brain-meta {
+	color: var(--text-muted);
+	margin: var(--size-4-1) 0;
+	word-break: break-word;
+}
+.llm-wiki-brain-actions,
+.llm-wiki-brain-neighbors {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-1);
+}
+.llm-wiki-brain-neighbors button {
+	font-size: var(--font-ui-smaller);
+	height: auto;
+	padding: 2px 8px;
+}
+.llm-wiki-brain-foot {
+	position: absolute;
+	left: var(--size-4-2);
+	right: var(--size-4-2);
+	bottom: var(--size-4-2);
+	display: flex;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	pointer-events: none;
+}
+.llm-wiki-brain-foot .llm-wiki-brain-tip {
+	position: static;
+	max-width: 50%;
+}
+.llm-wiki-brain-status {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+	.llm-wiki-brain * {
+		transition: none;
+	}
+}

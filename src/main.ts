@@ -1,6 +1,6 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, debounce } from "obsidian";
 import { BrainView, VIEW_TYPE_BRAIN } from "./view";
-import { askBrain, BrainSettings, DEFAULT_SETTINGS } from "./vaultGraph";
+import { BrainSettings, DEFAULT_SETTINGS, matchQuery, buildVaultGraph } from "./vaultGraph";
 
 class AskModal extends Modal {
 	constructor(app: App, private onSubmit: (q: string) => void) {
@@ -41,8 +41,8 @@ export default class BrainPlugin extends Plugin {
 			callback: () => {
 				void this.activate().then(() =>
 					new AskModal(this.app, (q) => {
-						const hits = askBrain(this.app, q, this.settings);
-						this.views().forEach((v) => v.engine?.highlight(hits));
+						const hits = Array.from(matchQuery(buildVaultGraph(this.app, this.settings), q));
+						this.views().forEach((v) => v.engine?.ask(hits));
 						new Notice(hits.length ? `${hits.length} page(s) lit up.` : "No matching pages.");
 					}).open(),
 				);
@@ -50,13 +50,25 @@ export default class BrainPlugin extends Plugin {
 		});
 		this.addCommand({ id: "lint", name: "Run wiki lint overlay", callback: () => void this.activate().then(() => this.views().forEach((v) => v.runLint())) });
 		this.addCommand({ id: "clear", name: "Clear highlights", callback: () => this.views().forEach((v) => v.engine?.clearMarks()) });
+		this.addCommand({ id: "flow", name: "Send information from the index to the latest page", callback: () => void this.activate().then(() => this.views().forEach((v) => v.playFlow())) });
+		this.addCommand({ id: "replay", name: "Replay the wiki growing in creation order", callback: () => void this.activate().then(() => this.views().forEach((v) => v.engine?.replay())) });
 		this.addSettingTab(new BrainSettingTab(this.app, this));
 
-		const resync = debounce(() => this.views().forEach((v) => v.refresh()), 800, true);
+		let pending: string | null = null; // a page created a moment ago: once it is indexed, information flows to it
+		const resync = debounce(() => {
+			this.views().forEach((v) => {
+				v.refresh();
+				if (pending && this.settings.autoFlowOnCreate) v.playFlow({ to: pending });
+			});
+			pending = null;
+		}, 800, true);
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.metadataCache.on("resolved", resync));
 			// Ingest: a page that is created or edited fires, then the graph catches up.
 			this.registerEvent(this.app.metadataCache.on("changed", (file) => this.views().forEach((v) => v.pulse(file.path))));
+			this.registerEvent(this.app.vault.on("create", (f) => {
+				if (f.path.endsWith(".md")) pending = f.path;
+			}));
 			this.registerEvent(this.app.vault.on("delete", resync));
 			this.registerEvent(this.app.vault.on("rename", resync));
 		});
@@ -110,6 +122,50 @@ class BrainSettingTab extends PluginSettingTab {
 			.addSlider((s) =>
 				s.setLimits(100, 2000, 50).setValue(this.plugin.settings.maxNodes).setDynamicTooltip().onChange(async (v) => {
 					this.plugin.settings.maxNodes = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Ambient signals")
+			.setDesc("Small signals that keep traveling along links. Off saves battery.")
+			.addDropdown((d) =>
+				d.addOptions({ off: "Off", calm: "Calm", lively: "Lively" }).setValue(this.plugin.settings.ambient).onChange(async (v) => {
+					this.plugin.settings.ambient = v as BrainSettings["ambient"];
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Flow speed")
+			.addDropdown((d) =>
+				d.addOptions({ slow: "Slow", normal: "Normal", fast: "Fast" }).setValue(this.plugin.settings.flowSpeed).onChange(async (v) => {
+					this.plugin.settings.flowSpeed = v as BrainSettings["flowSpeed"];
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Flow target")
+			.setDesc("Which page the Flow button sends information to.")
+			.addDropdown((d) =>
+				d.addOptions({ created: "Latest created page", edited: "Latest edited page" }).setValue(this.plugin.settings.flowTarget).onChange(async (v) => {
+					this.plugin.settings.flowTarget = v as BrainSettings["flowTarget"];
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Flow stays in view")
+			.setDesc("Only route through pages visible on screen and not hidden by filters.")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.flowViewOnly).onChange(async (v) => {
+					this.plugin.settings.flowViewOnly = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Flow to new pages")
+			.setDesc("When you create a page, send information from the index to it.")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.autoFlowOnCreate).onChange(async (v) => {
+					this.plugin.settings.autoFlowOnCreate = v;
 					await this.plugin.saveSettings();
 				}),
 			);
