@@ -1,0 +1,59 @@
+.llm-wiki-brain {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+	overflow: hidden;
+}
+.llm-wiki-brain-stage {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+.llm-wiki-brain-stage canvas {
+	display: block;
+	cursor: grab;
+	touch-action: none;
+}
+.llm-wiki-brain-stage canvas:active {
+	cursor: grabbing;
+}
+.llm-wiki-brain-bar {
+	position: absolute;
+	top: var(--size-4-2);
+	left: var(--size-4-2);
+	z-index: 1;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+}
+.llm-wiki-brain-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+.llm-wiki-brain-chip[aria-pressed="false"] {
+	opacity: 0.45;
+}
+.llm-wiki-brain-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--c, var(--interactive-accent));
+}
+.llm-wiki-brain-n {
+	color: var(--text-muted);
+}
+.llm-wiki-brain-tip {
+	position: absolute;
+	left: var(--size-4-2);
+	bottom: var(--size-4-2);
+	max-width: calc(100% - var(--size-4-4));
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	pointer-events: none;
+}
