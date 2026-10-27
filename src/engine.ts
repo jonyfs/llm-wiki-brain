@@ -1,7 +1,11 @@
 /* Brain engine: Canvas 2D with real perspective, depth sorting and neuron-shaped nodes.
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
-import { assignLobes, findRoute, spreadFrom } from "./route";
+import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
+import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
+import { assignPorts as assignPortsPure, edgeCurve, growDendrites } from "./ports";
+import type { Den as Dendrite } from "./ports";
+import { once } from "./refresh";
 
 export type PageType = "source" | "entity" | "concept" | "synthesis";
 export const TYPES: PageType[] = ["source", "entity", "concept", "synthesis"];
@@ -50,12 +54,6 @@ export interface EngineOptions {
 	onFullscreen: () => void;
 }
 
-interface Dendrite {
-	m: number[];
-	t: number[];
-	b: number[] | null;
-}
-
 interface Cell {
 	id: number;
 	path: string;
@@ -95,13 +93,6 @@ interface Cell {
 // a, b, bend, crosses the midline, dendrite used at a, dendrite used at b
 type Edge = [number, number, number, boolean, number, number];
 
-interface Lobe {
-	c: number[];
-	r: number[];
-	w: number;
-	side: number;
-}
-
 interface Signal {
 	e: number;
 	t: number;
@@ -126,17 +117,6 @@ interface Wave {
 	at: number;
 }
 
-const LOBES: Lobe[] = [
-	{ c: [-92, -18, 0], r: [150, 120, 130], w: 1.7, side: -1 },
-	{ c: [92, -18, 0], r: [150, 120, 130], w: 1.7, side: 1 },
-	{ c: [-125, 78, 14], r: [68, 52, 78], w: 0.7, side: -1 },
-	{ c: [125, 78, 14], r: [68, 52, 78], w: 0.7, side: 1 },
-	{ c: [0, -92, -6], r: [118, 66, 104], w: 0.9, side: 0 },
-	{ c: [0, 100, -92], r: [84, 54, 66], w: 0.8, side: 0 },
-	{ c: [0, 158, -40], r: [26, 62, 26], w: 0.35, side: 0 },
-];
-const LOBE_SUM = LOBES.reduce((s, l) => s + l.w, 0);
-const GAP = 7;
 const DIST = 820;
 const MORPH: Record<PageType, number[]> = {
 	source: [3, 1.5, 2.8, 0.4, 6.2],
@@ -214,11 +194,6 @@ function makeGhost(rgb: string): HTMLCanvasElement {
 	return c;
 }
 
-// Gyri and sulci: the outline of each lobe wobbles a little, so the shell reads as folded cortex.
-function fold(x: number, y: number, z: number): number {
-	return 1 + 0.05 * (Math.sin(x * 0.09) + Math.sin(y * 0.11 + 1.3) + Math.sin(z * 0.1 + 2.1));
-}
-
 export class BrainEngine {
 	private ctx: CanvasRenderingContext2D;
 	private nodes: Cell[] = [];
@@ -289,6 +264,7 @@ export class BrainEngine {
 	private frames = 0;
 	private frameMs = 0;
 	private lowDetail = false;
+	private reportDrawFailure = once((m) => this.opts.onStatus(m));
 	private portsDirty = true;
 	private anc = new Float64Array(0);
 
@@ -639,7 +615,7 @@ export class BrainEngine {
 			return false;
 		}
 		const index = this.indexCell();
-		const ids = this.nodes.filter((n) => !n.off && !n.isIndex && n.id !== index?.id).sort((a, b) => a.ctime - b.ctime).map((n) => n.id);
+		const ids = index ? creationOrder(this.nodes, index.id) : [];
 		if (!index || !ids.length) return false;
 		for (const n of this.nodes) if (n.id !== index.id) n.replayHidden = true;
 		this.packets = [];
@@ -647,6 +623,11 @@ export class BrainEngine {
 		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id };
 		this.applyVisibility();
 		return true;
+	}
+
+	/** True while a flow, an ask wave or a replay is playing. The view waits for this before rebuilding the graph. */
+	isBusy(): boolean {
+		return this.packets.length > 0 || this.waves.length > 0 || this.replayState !== null;
 	}
 
 	isReplaying(): boolean {
@@ -718,52 +699,12 @@ export class BrainEngine {
 
 	/* ---------- Ports: where each link leaves the neuron ---------- */
 
-	/**
-	 * Every link gets a dendrite at each end, the free one that points most toward the other page, so a
-	 * connection grows out of a branch of the cell and not out of its centre. Busy hubs grow extra branches.
-	 */
 	private assignPorts(): void {
-		const nodes = this.nodes;
-		const inc: number[][] = nodes.map(() => []);
-		this.edges.forEach((e, i) => {
-			inc[e[0]].push(i);
-			inc[e[1]].push(i);
+		assignPortsPure(this.nodes, this.edges, (n, want) => {
+			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
+			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
 		});
-		for (const n of nodes) {
-			const want = Math.min(20, Math.ceil(n.deg * 1.0));
-			if (n.den.length < want) {
-				const r = rng(hashStr(n.path) ^ 0x5bd1e995);
-				const extra = this.makeDendrites(n.type, r);
-				for (let i = 0; n.den.length < want; i++) n.den.push(extra[i % extra.length] === undefined ? extra[0] : this.reshuffle(extra[i % extra.length], r));
-			}
-			const load = new Array<number>(n.den.length).fill(0);
-			const units = n.den.map((d) => {
-				const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
-				return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
-			});
-			for (const ei of inc[n.id]) {
-				const e = this.edges[ei], other = nodes[e[0] === n.id ? e[1] : e[0]];
-				const dx = other.x - n.x, dy = other.y - n.y, dz = other.z - n.z, dl = Math.hypot(dx, dy, dz) || 1;
-				let best = 0, bs = -1e9;
-				for (let d = 0; d < units.length; d++) {
-					const sc = (units[d][0] * dx + units[d][1] * dy + units[d][2] * dz) / dl - 0.3 * load[d];
-					if (sc > bs) {
-						bs = sc;
-						best = d;
-					}
-				}
-				load[best]++;
-				if (e[0] === n.id) e[4] = best;
-				else e[5] = best;
-			}
-			n.port = load;
-		}
 		this.portsDirty = false;
-	}
-
-	private reshuffle(d: Dendrite, r: () => number): Dendrite {
-		const u = r() * 6.2832, v = r() * 2 - 1, s = Math.sqrt(1 - v * v), len = Math.hypot(d.t[0], d.t[1], d.t[2]);
-		return { m: [s * Math.cos(u) * len * 0.45, v * len * 0.45, s * Math.sin(u) * len * 0.45], t: [s * Math.cos(u) * len, v * len, s * Math.sin(u) * len], b: null };
 	}
 
 	private denScale(n: Cell): number {
@@ -801,16 +742,7 @@ export class BrainEngine {
 
 	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
 	private ePts(ei: number, fwd: boolean): number[] {
-		const ed = this.edges[ei], A = this.anc, o = ei * 8;
-		const a = fwd ? o : o + 4, b = fwd ? o + 4 : o;
-		const x0 = A[a], y0 = A[a + 1], x1 = A[b], y1 = A[b + 1];
-		const L = Math.hypot(x1 - x0, y1 - y0) || 1, k = (fwd ? 1 : -1) * ed[2] * L * 0.9;
-		const ux = (x1 - x0) / L, uy = (y1 - y0) / L, px = -uy, py = ux;
-		// A branch that points at the other cell lets the process run along it; one that points away gets a short
-		// tangent, so the link turns early instead of looping around the cell.
-		const ta = L * (0.08 + 0.34 * clamp(A[a + 2] * ux + A[a + 3] * uy, 0, 1));
-		const tb = L * (0.08 + 0.34 * clamp(-(A[b + 2] * ux + A[b + 3] * uy), 0, 1));
-		return [x0, y0, x0 + A[a + 2] * ta + px * k, y0 + A[a + 3] * ta + py * k, x1 + A[b + 2] * tb + px * k, y1 + A[b + 3] * tb + py * k, x1, y1];
+		return edgeCurve(this.anc, ei * 8, fwd, this.edges[ei][2]);
 	}
 
 	/** A point along a link, soma to dendrite, then the process, then the other dendrite to its soma. */
@@ -835,51 +767,7 @@ export class BrainEngine {
 	/* ---------- Physics ---------- */
 
 	private simStep(k: number): void {
-		const REPEL = 1100, CS = 150, CUT2 = CS * CS, REST = 34;
-		const nodes = this.nodes;
-		// Spatial hash: only cells within one bucket of each other repel, so the cost stays near-linear.
-		const grid = new Map<number, Cell[]>();
-		const key = (ix: number, iy: number, iz: number) => ((ix + 512) * 1024 + (iy + 512)) * 1024 + (iz + 512);
-		for (const a of nodes) {
-			const kk = key(Math.floor(a.x / CS), Math.floor(a.y / CS), Math.floor(a.z / CS));
-			const l = grid.get(kk);
-			if (l) l.push(a);
-			else grid.set(kk, [a]);
-		}
-		for (const a of nodes) {
-			const ix = Math.floor(a.x / CS), iy = Math.floor(a.y / CS), iz = Math.floor(a.z / CS);
-			for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-				const l = grid.get(key(ix + dx, iy + dy, iz + dz));
-				if (!l) continue;
-				for (const b of l) {
-					if (b.id <= a.id) continue;
-					const ddx = b.x - a.x, ddy = b.y - a.y, ddz = b.z - a.z, d2 = ddx * ddx + ddy * ddy + ddz * ddz + 1;
-					if (d2 > CUT2) continue;
-					const f = (REPEL * k) / d2 / Math.sqrt(d2);
-					a.vx -= f * ddx; a.vy -= f * ddy; a.vz -= f * ddz;
-					b.vx += f * ddx; b.vy += f * ddy; b.vz += f * ddz;
-				}
-			}
-		}
-		for (const e of this.edges) {
-			const a = nodes[e[0]], b = nodes[e[1]];
-			const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-			const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1, f = ((d - REST) * 0.018 * k) / d;
-			a.vx += f * dx; a.vy += f * dy; a.vz += f * dz;
-			b.vx -= f * dx; b.vy -= f * dy; b.vz -= f * dz;
-		}
-		for (const a of nodes) {
-			const L = LOBES[a.lobe];
-			const ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
-			const q = Math.sqrt(ex * ex + ey * ey + ez * ez), lim = 0.97 * fold(a.x, a.y, a.z);
-			if (q > lim) {
-				const pull = (q - lim) * 0.12;
-				a.vx += (L.c[0] - a.x) * pull; a.vy += (L.c[1] - a.y) * pull; a.vz += (L.c[2] - a.z) * pull;
-			}
-			a.vx *= 0.84; a.vy *= 0.84; a.vz *= 0.84;
-			a.x += a.vx; a.y += a.vy; a.z += a.vz;
-			if (a.side && a.x * a.side < GAP) a.x = a.side * GAP;
-		}
+		stepPhysics(this.nodes, this.edges, k);
 	}
 
 	/* ---------- Theme ---------- */
@@ -1260,6 +1148,7 @@ export class BrainEngine {
 				this.quality = 0;
 				this.signals = [];
 				console.warn("llm-wiki-brain: draw failed", err);
+				this.reportDrawFailure("Drawing failed (" + (err instanceof Error ? err.message : String(err)) + "). Switched to simple mode. Include this message in a bug report.");
 			}
 			this.lastDraw = now;
 			this.tune(performance.now() - t0);

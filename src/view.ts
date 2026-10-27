@@ -1,6 +1,8 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
+import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
+import { createDeferredRefresh } from "./refresh";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
@@ -33,6 +35,17 @@ export class BrainView extends ItemView {
 	private rotateBtn!: HTMLButtonElement;
 	private replayBtn!: HTMLButtonElement;
 	private neighborhood: string | null = null;
+	private afterRefresh: (() => void)[] = [];
+	private deferred = createDeferredRefresh({
+		isBusy: () => this.engine?.isBusy() ?? false,
+		run: () => {
+			const after = this.afterRefresh.splice(0);
+			void this.refresh().then(() => after.forEach((f) => f()));
+		},
+		now: () => Date.now(),
+		schedule: (fn, ms) => window.setTimeout(fn, ms),
+		cancel: (h) => window.clearTimeout(h as number),
+	});
 
 	constructor(leaf: WorkspaceLeaf, private plugin: BrainPlugin) {
 		super(leaf);
@@ -57,7 +70,7 @@ export class BrainView extends ItemView {
 	async setState(state: { filters?: Partial<Filters> }, result: Parameters<ItemView["setState"]>[1]): Promise<void> {
 		if (state?.filters) this.filters = { ...DEFAULT_FILTERS, ...state.filters };
 		await super.setState(state, result);
-		if (this.engine) this.refresh();
+		if (this.engine) void this.refresh();
 	}
 
 	async onOpen(): Promise<void> {
@@ -115,8 +128,8 @@ export class BrainView extends ItemView {
 		});
 
 		this.panel = root.createDiv({ cls: "llm-wiki-brain-panel" });
-		this.folderSel = this.field("Folder", () => this.folderSel);
-		this.tagSel = this.field("Tag", () => this.tagSel);
+		this.folderSel = this.field("Folder");
+		this.tagSel = this.field("Tag");
 		const deg = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		deg.createEl("label", { text: "Min links" });
 		const degIn = deg.createEl("input", { type: "range", attr: { min: "0", max: "10", step: "1", value: "0", "aria-label": "Minimum links" } });
@@ -191,15 +204,16 @@ export class BrainView extends ItemView {
 		});
 		this.rotateBtn.setAttribute("aria-pressed", String(this.engine.isAuto()));
 		this.registerEvent(this.app.workspace.on("css-change", () => this.engine?.readTheme()));
-		this.refresh();
+		await this.refresh();
 	}
 
 	async onClose(): Promise<void> {
+		this.deferred.cancel();
 		this.engine?.destroy();
 		this.engine = null;
 	}
 
-	private field(label: string, _self: () => HTMLSelectElement): HTMLSelectElement {
+	private field(label: string): HTMLSelectElement {
 		const row = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		row.createEl("label", { text: label });
 		return row.createEl("select");
@@ -216,10 +230,21 @@ export class BrainView extends ItemView {
 		else void el.requestFullscreen?.().catch(() => new Notice("Full screen is not available here."));
 	}
 
+	/**
+	 * Vault events: rebuild once the animation in flight is idle (at most 5 s), so a Flow or a Replay is not erased.
+	 * `after` runs once the rebuild is done.
+	 */
+	requestRefresh(after?: () => void): void {
+		if (after) this.afterRefresh.push(after);
+		this.deferred.request();
+	}
+
 	/** Rebuild the graph from the vault; existing cells keep their place and the selection survives. */
-	refresh(): void {
+	async refresh(): Promise<void> {
 		if (!this.engine) return;
-		this.graph = buildVaultGraph(this.app, this.plugin.settings);
+		const log = await this.plugin.readLog();
+		if (!this.engine) return;
+		this.graph = buildVaultGraph(this.app, this.plugin.settings, log);
 		this.engine.setGraph(this.graph.pages, this.graph.links);
 		for (const t of this.filters.hidden) this.engine.setHidden(t, true);
 		this.fillSelects();
@@ -270,46 +295,17 @@ export class BrainView extends ItemView {
 
 	private applyFilters(): void {
 		if (!this.engine || !this.graph) return;
-		const f = this.filters, g = this.graph, now = Date.now();
-		const orph = new Set(g.orphans);
-		const active = f.folder || f.tag || f.minDeg || f.orphansOnly || f.days || this.neighborhood;
-		if (!active) {
-			this.engine.setFilter(null);
-			this.updateStatus();
-			return;
-		}
-		let allowed: Set<string> | null = null;
-		if (this.neighborhood) allowed = this.neighbourhoodOf(this.neighborhood, 2);
-		const keep = new Set<string>();
-		for (const p of g.pages) {
-			const m = g.meta.get(p.path);
-			if (!m) continue;
-			if (allowed && !allowed.has(p.path)) continue;
-			if (f.folder && m.folder !== f.folder) continue;
-			if (f.tag && !m.tags.includes(f.tag)) continue;
-			if (f.minDeg && this.engine.degree(p.path) < f.minDeg) continue;
-			if (f.orphansOnly && !orph.has(p.path)) continue;
-			if (f.days && now - p.mtime > f.days * 86400000) continue;
-			keep.add(p.path);
-		}
-		this.engine.setFilter(keep);
+		const g = this.graph, engine = this.engine;
+		const pages: FilterPage[] = g.pages.map((p) => ({ path: p.path, mtime: p.mtime, folder: g.meta.get(p.path)?.folder ?? "", tags: g.meta.get(p.path)?.tags ?? [] }));
+		engine.setFilter(
+			filterPaths(pages, this.filters, {
+				degree: (path) => engine.degree(path),
+				orphans: new Set(g.orphans),
+				neighbourhood: this.neighborhood ? neighbourhoodOf(g.links, this.neighborhood, 2) : null,
+				now: Date.now(),
+			}),
+		);
 		this.updateStatus();
-	}
-
-	private neighbourhoodOf(path: string, depth: number): Set<string> {
-		const adj = new Map<string, string[]>();
-		for (const [a, b] of this.graph?.links ?? []) {
-			(adj.get(a) ?? adj.set(a, []).get(a)!).push(b);
-			(adj.get(b) ?? adj.set(b, []).get(b)!).push(a);
-		}
-		const seen = new Set([path]);
-		let frontier = [path];
-		for (let d = 0; d < depth; d++) {
-			const next: string[] = [];
-			for (const p of frontier) for (const q of adj.get(p) ?? []) if (!seen.has(q)) { seen.add(q); next.push(q); }
-			frontier = next;
-		}
-		return seen;
 	}
 
 	private applySearch(ask: boolean): void {

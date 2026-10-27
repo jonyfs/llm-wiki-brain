@@ -56,3 +56,21 @@ test("assignLobes spreads cells over several lobes in proportion to their weight
 	const c0 = lobes.filter((x) => x === 0).length, c1 = lobes.filter((x) => x === 1).length;
 	assert.ok(Math.abs(c0 - c1) <= 2, "hemispheres balanced: " + c0 + " vs " + c1);
 });
+
+import { creationOrder } from "../.test-build/route.mjs";
+
+test("creationOrder: oldest first, skips the index and hidden pages, keeps ties in order", () => {
+	const cells = [
+		{ id: 0, ctime: 9, isIndex: true, off: false },
+		{ id: 1, ctime: 30, isIndex: false, off: false },
+		{ id: 2, ctime: 10, isIndex: false, off: false },
+		{ id: 3, ctime: 10, isIndex: false, off: false },
+		{ id: 4, ctime: 1, isIndex: false, off: true },
+	];
+	assert.deepEqual(creationOrder(cells, 0), [2, 3, 1]);
+});
+
+test("creationOrder with a fallback index that is not flagged skips it too", () => {
+	const cells = [{ id: 0, ctime: 5, isIndex: false, off: false }, { id: 1, ctime: 6, isIndex: false, off: false }];
+	assert.deepEqual(creationOrder(cells, 0), [1]);
+});

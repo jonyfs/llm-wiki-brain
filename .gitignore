@@ -4,3 +4,6 @@ main.js
 .DS_Store
 data.json
 .test-build
+scripts/harness/bundle.js
+scripts/harness/bundle9.js
+scripts/harness/v9.html

@@ -1,5 +1,6 @@
-import { App, TFile } from "obsidian";
+import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
+import { creationTimes } from "./logParser";
 
 export interface BrainSettings {
 	wikiRoot: string;
@@ -81,7 +82,7 @@ export function inScope(path: string, s: BrainSettings): boolean {
 	return !root || path.startsWith(root + "/");
 }
 
-export function buildVaultGraph(app: App, s: BrainSettings): VaultGraph {
+export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | null): VaultGraph {
 	const all = app.vault.getMarkdownFiles().filter((f) => inScope(f.path, s));
 	const scope = new Set(all.map((f) => f.path));
 	const resolved = app.metadataCache.resolvedLinks;
@@ -120,6 +121,9 @@ export function buildVaultGraph(app: App, s: BrainSettings): VaultGraph {
 		const base = f.basename.toLowerCase();
 		return { path: f.path, label: f.basename, type: pageType(app, f), ctime: f.stat.ctime, mtime: f.stat.mtime, isIndex: base === "index", isLog: base === "log" };
 	});
+	// File dates collapse in vaults restored from Git or iCloud: then the log says what came first.
+	const times = creationTimes(pages.map((p) => ({ path: p.path, label: p.label, ctime: p.ctime })), logText);
+	for (const p of pages) p.ctime = times.get(p.path) ?? p.ctime;
 	const special = new Set(pages.filter((p) => p.isIndex || p.isLog).map((p) => p.path));
 	return {
 		pages,

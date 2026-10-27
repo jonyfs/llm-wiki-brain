@@ -56,11 +56,10 @@ export default class BrainPlugin extends Plugin {
 
 		let pending: string | null = null; // a page created a moment ago: once it is indexed, information flows to it
 		const resync = debounce(() => {
-			this.views().forEach((v) => {
-				v.refresh();
-				if (pending && this.settings.autoFlowOnCreate) v.playFlow({ to: pending });
-			});
+			const target = this.settings.autoFlowOnCreate ? pending : null;
 			pending = null;
+			// An animation in flight is not erased: the rebuild waits for it (at most 5 s).
+			this.views().forEach((v) => v.requestRefresh(target ? () => v.playFlow({ to: target }) : undefined));
 		}, 800, true);
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.metadataCache.on("resolved", resync));
@@ -95,7 +94,18 @@ export default class BrainPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
-		this.views().forEach((v) => v.refresh());
+		this.views().forEach((v) => void v.refresh());
+	}
+
+	/** wiki/log.md, or null when it does not exist or cannot be read. */
+	async readLog(): Promise<string | null> {
+		const root = this.settings.wikiRoot.trim().replace(/^\/+|\/+$/g, "");
+		const path = (root ? root + "/" : "") + "log.md";
+		try {
+			return (await this.app.vault.adapter.exists(path)) ? await this.app.vault.adapter.read(path) : null;
+		} catch {
+			return null;
+		}
 	}
 }
 
