@@ -89,9 +89,11 @@ interface Cell {
 	pr: number;
 	pd: number;
 	den: Dendrite[];
+	port: number[]; // how many links leave through each dendrite
 }
 
-type Edge = [number, number, number, boolean];
+// a, b, bend, crosses the midline, dendrite used at a, dendrite used at b
+type Edge = [number, number, number, boolean, number, number];
 
 interface Lobe {
 	c: number[];
@@ -109,7 +111,7 @@ interface Signal {
 }
 
 interface Packet {
-	segs: [number, number, number][]; // from, to, curvature in travel direction
+	segs: [number, number, number, number][]; // from, to, curvature in travel direction, edge index (-1 for a virtual arc)
 	seg: number;
 	t: number;
 	v: number;
@@ -286,6 +288,9 @@ export class BrainEngine {
 	private fast = 0;
 	private frames = 0;
 	private frameMs = 0;
+	private lowDetail = false;
+	private portsDirty = true;
+	private anc = new Float64Array(0);
 
 	constructor(private canvas: HTMLCanvasElement, private opts: EngineOptions) {
 		this.ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
@@ -355,7 +360,7 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r),
+				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [],
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -379,7 +384,7 @@ export class BrainEngine {
 			const k = na.id < nb.id ? na.id + "," + nb.id : nb.id + "," + na.id;
 			if (this.edgeIdx.has(k)) continue;
 			this.edgeIdx.set(k, this.edges.length);
-			this.edges.push([na.id, nb.id, (er() < 0.5 ? -1 : 1) * (0.04 + er() * 0.08), na.side !== 0 && nb.side === -na.side]);
+			this.edges.push([na.id, nb.id, (er() < 0.5 ? -1 : 1) * (0.04 + er() * 0.08), na.side !== 0 && nb.side === -na.side, 0, 0]);
 			na.deg++;
 			nb.deg++;
 			na.adj.push(nb.id);
@@ -388,6 +393,7 @@ export class BrainEngine {
 		this.applyVisibility();
 		this.alpha = this.opts.reducedMotion ? 0 : 0.6;
 		if (this.opts.reducedMotion) for (let s = 0, a = 1; s < 220; s++, a *= 0.985) this.simStep(a);
+		this.assignPorts();
 		this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
 		this.start();
 	}
@@ -504,6 +510,7 @@ export class BrainEngine {
 	}
 
 	private flyTo(n: Cell): void {
+		this.project(); // positions on screen may be stale (or never drawn) when the pane was hidden
 		const z1 = clamp(Math.max(this.zoom, 2), 0.55, 4), ox = n.px - this.W / 2 - this.panX;
 		this.tz = z1;
 		this.tpx = (-ox * z1) / this.zoom;
@@ -568,6 +575,10 @@ export class BrainEngine {
 		return 0.011 * this.opts.flowSpeed();
 	}
 
+	private edgeOf(a: number, b: number): number {
+		return this.edgeIdx.get(a < b ? a + "," + b : b + "," + a) ?? -1;
+	}
+
 	private edgeK(a: number, b: number): number | null {
 		const e = this.edgeIdx.get(a < b ? a + "," + b : b + "," + a);
 		if (e == null) return null;
@@ -592,11 +603,11 @@ export class BrainEngine {
 		if (!target || target === from || target.off) return null;
 		const allowed = (i: number) => !this.nodes[i].off && (!o.viewOnly || this.onScreen(this.nodes[i]));
 		const route = findRoute(this.nodes.map((n) => n.adj), from.id, target.id, (i) => allowed(i) || i === from.id || i === target!.id, 8);
-		const segs: [number, number, number][] = [];
+		const segs: [number, number, number, number][] = [];
 		if (route) {
-			for (let i = 0; i + 1 < route.length; i++) segs.push([route[i], route[i + 1], this.edgeK(route[i], route[i + 1]) ?? 0.1]);
+			for (let i = 0; i + 1 < route.length; i++) segs.push([route[i], route[i + 1], this.edgeK(route[i], route[i + 1]) ?? 0.1, this.edgeOf(route[i], route[i + 1])]);
 		} else {
-			segs.push([from.id, target.id, 0.3]);
+			segs.push([from.id, target.id, 0.3, -1]);
 		}
 		this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed(), virtual: !route, fade: 1, done: false });
 		from.pulse = 1;
@@ -703,6 +714,122 @@ export class BrainEngine {
 		const e = Math.floor(Math.random() * this.edges.length), ed = this.edges[e];
 		if (this.nodes[ed[0]].off || this.nodes[ed[1]].off) return;
 		this.sendSignal(Math.random() < 0.5 ? ed[0] : ed[1], Math.random() < 0.5 ? ed[1] : ed[0], 0);
+	}
+
+	/* ---------- Ports: where each link leaves the neuron ---------- */
+
+	/**
+	 * Every link gets a dendrite at each end, the free one that points most toward the other page, so a
+	 * connection grows out of a branch of the cell and not out of its centre. Busy hubs grow extra branches.
+	 */
+	private assignPorts(): void {
+		const nodes = this.nodes;
+		const inc: number[][] = nodes.map(() => []);
+		this.edges.forEach((e, i) => {
+			inc[e[0]].push(i);
+			inc[e[1]].push(i);
+		});
+		for (const n of nodes) {
+			const want = Math.min(20, Math.ceil(n.deg * 1.0));
+			if (n.den.length < want) {
+				const r = rng(hashStr(n.path) ^ 0x5bd1e995);
+				const extra = this.makeDendrites(n.type, r);
+				for (let i = 0; n.den.length < want; i++) n.den.push(extra[i % extra.length] === undefined ? extra[0] : this.reshuffle(extra[i % extra.length], r));
+			}
+			const load = new Array<number>(n.den.length).fill(0);
+			const units = n.den.map((d) => {
+				const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
+				return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
+			});
+			for (const ei of inc[n.id]) {
+				const e = this.edges[ei], other = nodes[e[0] === n.id ? e[1] : e[0]];
+				const dx = other.x - n.x, dy = other.y - n.y, dz = other.z - n.z, dl = Math.hypot(dx, dy, dz) || 1;
+				let best = 0, bs = -1e9;
+				for (let d = 0; d < units.length; d++) {
+					const sc = (units[d][0] * dx + units[d][1] * dy + units[d][2] * dz) / dl - 0.3 * load[d];
+					if (sc > bs) {
+						bs = sc;
+						best = d;
+					}
+				}
+				load[best]++;
+				if (e[0] === n.id) e[4] = best;
+				else e[5] = best;
+			}
+			n.port = load;
+		}
+		this.portsDirty = false;
+	}
+
+	private reshuffle(d: Dendrite, r: () => number): Dendrite {
+		const u = r() * 6.2832, v = r() * 2 - 1, s = Math.sqrt(1 - v * v), len = Math.hypot(d.t[0], d.t[1], d.t[2]);
+		return { m: [s * Math.cos(u) * len * 0.45, v * len * 0.45, s * Math.sin(u) * len * 0.45], t: [s * Math.cos(u) * len, v * len, s * Math.sin(u) * len], b: null };
+	}
+
+	private denScale(n: Cell): number {
+		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr));
+	}
+
+	private denVisible(n: Cell): boolean {
+		return !this.lowDetail && n.pr > 2.2 * this.dpr;
+	}
+
+	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
+	private anchorOf(n: Cell, di: number, out: Float64Array, o: number): void {
+		const d = n.den[di];
+		if (!d) {
+			out[o] = n.px; out[o + 1] = n.py; out[o + 2] = 0; out[o + 3] = 0;
+			return;
+		}
+		const [rx, ry] = this.rotv(d.t);
+		const len = Math.hypot(rx, ry) || 1;
+		const k = this.denVisible(n) ? this.denScale(n) : (n.pr * 0.9) / Math.hypot(d.t[0], d.t[1], d.t[2] || 1);
+		out[o] = n.px + rx * k;
+		out[o + 1] = n.py + ry * k;
+		out[o + 2] = rx / len;
+		out[o + 3] = ry / len;
+	}
+
+	private computeAnchors(): void {
+		if (this.anc.length < this.edges.length * 8) this.anc = new Float64Array(this.edges.length * 8);
+		for (let i = 0; i < this.edges.length; i++) {
+			const e = this.edges[i];
+			this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
+			this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+		}
+	}
+
+	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
+	private ePts(ei: number, fwd: boolean): number[] {
+		const ed = this.edges[ei], A = this.anc, o = ei * 8;
+		const a = fwd ? o : o + 4, b = fwd ? o + 4 : o;
+		const x0 = A[a], y0 = A[a + 1], x1 = A[b], y1 = A[b + 1];
+		const L = Math.hypot(x1 - x0, y1 - y0) || 1, k = (fwd ? 1 : -1) * ed[2] * L * 0.9;
+		const ux = (x1 - x0) / L, uy = (y1 - y0) / L, px = -uy, py = ux;
+		// A branch that points at the other cell lets the process run along it; one that points away gets a short
+		// tangent, so the link turns early instead of looping around the cell.
+		const ta = L * (0.08 + 0.34 * clamp(A[a + 2] * ux + A[a + 3] * uy, 0, 1));
+		const tb = L * (0.08 + 0.34 * clamp(-(A[b + 2] * ux + A[b + 3] * uy), 0, 1));
+		return [x0, y0, x0 + A[a + 2] * ta + px * k, y0 + A[a + 3] * ta + py * k, x1 + A[b + 2] * tb + px * k, y1 + A[b + 3] * tb + py * k, x1, y1];
+	}
+
+	/** A point along a link, soma to dendrite, then the process, then the other dendrite to its soma. */
+	private edgePoint(ei: number, fwd: boolean, t: number): [number, number] {
+		const ed = this.edges[ei], na = this.nodes[fwd ? ed[0] : ed[1]], nb = this.nodes[fwd ? ed[1] : ed[0]];
+		const c = this.ePts(ei, fwd);
+		if (t < 0.1) {
+			const u = t / 0.1;
+			return [na.px + (c[0] - na.px) * u, na.py + (c[1] - na.py) * u];
+		}
+		if (t > 0.9) {
+			const u = (t - 0.9) / 0.1;
+			return [c[6] + (nb.px - c[6]) * u, c[7] + (nb.py - c[7]) * u];
+		}
+		const s = (t - 0.1) / 0.8, v = 1 - s;
+		return [
+			v * v * v * c[0] + 3 * v * v * s * c[2] + 3 * v * s * s * c[4] + s * s * s * c[6],
+			v * v * v * c[1] + 3 * v * v * s * c[3] + 3 * v * s * s * c[5] + s * s * s * c[7],
+		];
 	}
 
 	/* ---------- Physics ---------- */
@@ -1006,7 +1133,11 @@ export class BrainEngine {
 			this.simStep(this.alpha);
 			this.alpha *= 0.965;
 			busy = true;
-		} else this.alpha = 0;
+			this.portsDirty = true;
+		} else {
+			this.alpha = 0;
+			if (this.portsDirty) this.assignPorts(); // the layout settled: re-aim every link at the nearest free branch
+		}
 		if (!this.dragging) {
 			if (Math.abs(this.vyaw) > 1e-4 || Math.abs(this.vpitch) > 1e-4) {
 				this.yaw += this.vyaw * dt;
@@ -1095,9 +1226,9 @@ export class BrainEngine {
 				n.lit = this.tNow + 2000;
 				if (!n.off) {
 					const route = findRoute(this.nodes.map((x) => x.adj), rp.index, id, (j) => !this.nodes[j].off, 8);
-					const segs: [number, number, number][] = [];
-					if (route) for (let k = 0; k + 1 < route.length; k++) segs.push([route[k], route[k + 1], this.edgeK(route[k], route[k + 1]) ?? 0.1]);
-					else segs.push([rp.index, id, 0.3]);
+					const segs: [number, number, number, number][] = [];
+					if (route) for (let k = 0; k + 1 < route.length; k++) segs.push([route[k], route[k + 1], this.edgeK(route[k], route[k + 1]) ?? 0.1, this.edgeOf(route[k], route[k + 1])]);
+					else segs.push([rp.index, id, 0.3, -1]);
 					this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed() * 1.4, virtual: !route, fade: 1, done: false });
 				}
 				rp.next = this.tNow + rp.step;
@@ -1166,10 +1297,9 @@ export class BrainEngine {
 	private edgePath(list: number[]): void {
 		const ctx = this.ctx;
 		for (const i of list) {
-			const ed = this.edges[i], na = this.nodes[ed[0]], nb = this.nodes[ed[1]];
-			const [cx, cy] = this.ctrl(na, nb, ed[2]);
-			ctx.moveTo(na.px, na.py);
-			ctx.quadraticCurveTo(cx, cy, nb.px, nb.py);
+			const c = this.ePts(i, true);
+			ctx.moveTo(c[0], c[1]);
+			ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
 		}
 	}
 
@@ -1177,6 +1307,8 @@ export class BrainEngine {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
+		this.lowDetail = nodes.length > 600 || this.quality === 0;
+		this.computeAnchors();
 		if (this.ghost) {
 			ctx.globalAlpha = this.ghostAlpha;
 			for (const L of LOBES) {
@@ -1225,9 +1357,9 @@ export class BrainEngine {
 				if (e[0] !== f && e[1] !== f) continue;
 				const a = nodes[e[0]], b = nodes[e[1]];
 				if (a.off || b.off) continue;
-				const [cx, cy] = this.ctrl(a, b, e[2]);
-				ctx.moveTo(a.px, a.py);
-				ctx.quadraticCurveTo(cx, cy, b.px, b.py);
+				const c = this.ePts(this.edgeOf(e[0], e[1]), true);
+				ctx.moveTo(c[0], c[1]);
+				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
 			}
 			ctx.stroke();
 		}
@@ -1242,7 +1374,7 @@ export class BrainEngine {
 			}
 			order[j + 1] = cur;
 		}
-		const m = 70 * dpr, warn = this.tNow < this.flagUntil, lowDetail = nodes.length > 600 || this.quality === 0;
+		const m = 70 * dpr, warn = this.tNow < this.flagUntil, lowDetail = this.lowDetail;
 		for (const n of order) {
 			if (n.off || n.px < -m || n.px > this.W + m || n.py < -m || n.py > this.H + m) continue;
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
@@ -1283,7 +1415,8 @@ export class BrainEngine {
 		this.drawLabels(f, fn, nb);
 	}
 
-	private segPoint(seg: [number, number, number], t: number): [number, number] {
+	private segPoint(seg: [number, number, number, number], t: number): [number, number] {
+		if (seg[3] >= 0) return this.edgePoint(seg[3], this.edges[seg[3]][0] === seg[0], t);
 		const a = this.nodes[seg[0]], b = this.nodes[seg[1]], u = 1 - t;
 		const [cx, cy] = this.ctrl(a, b, seg[2]);
 		return [u * u * a.px + 2 * u * t * cx + t * t * b.px, u * u * a.py + 2 * u * t * cy + t * t * b.py];
@@ -1300,6 +1433,14 @@ export class BrainEngine {
 			ctx.beginPath();
 			for (const s of p.segs) {
 				const a = this.nodes[s[0]], b = this.nodes[s[1]];
+				if (s[3] >= 0) { // soma, dendrite, process, dendrite, soma
+					const c = this.ePts(s[3], this.edges[s[3]][0] === s[0]);
+					ctx.moveTo(a.px, a.py);
+					ctx.lineTo(c[0], c[1]);
+					ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+					ctx.lineTo(b.px, b.py);
+					continue;
+				}
 				const [cx, cy] = this.ctrl(a, b, s[2]);
 				ctx.moveTo(a.px, a.py);
 				ctx.quadraticCurveTo(cx, cy, b.px, b.py);
@@ -1339,45 +1480,50 @@ export class BrainEngine {
 		ctx.globalAlpha = 1;
 	}
 
+	/** Branches that carry a link are drawn bright and end in a bouton; free branches stay faint, ready for the next link. */
 	private drawDendrites(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr;
-		if (n.pr <= 2.2 * dpr) return;
-		const k = n.pr * Math.min(1, (40 * dpr) / (5 * n.pr)), col = this.palRGB[n.type], bw = Math.max(0.9 * dpr, n.pr * 0.16);
-		const tips: number[] = [];
-		ctx.strokeStyle = "rgba(" + col + "," + al + ")";
-		ctx.lineWidth = Math.max(0.7 * dpr, n.pr * 0.1);
+		if (!this.denVisible(n)) return;
+		const k = this.denScale(n), col = this.palRGB[n.type], bw = Math.max(0.9 * dpr, n.pr * 0.16);
 		ctx.lineCap = "round";
-		ctx.beginPath();
-		for (const d of n.den) {
-			const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
-			const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
-			ctx.moveTo(n.px, n.py);
-			ctx.quadraticCurveTo(mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty);
-			tips.push(tx, ty);
-			if (d.b && this.quality > 1) {
-				const [r3x, r3y] = this.rotv(d.b);
-				ctx.moveTo(mx, my);
-				ctx.lineTo(n.px + r3x * k, n.py + r3y * k);
-				tips.push(n.px + r3x * k, n.py + r3y * k);
+		for (const used of [false, true]) {
+			const a = used ? Math.min(1, al * 1.5) : al * 0.5, tips: number[] = [];
+			ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+			ctx.lineWidth = Math.max(0.7 * dpr, n.pr * 0.1) * (used ? 1.25 : 1);
+			ctx.beginPath();
+			for (let i = 0; i < n.den.length; i++) {
+				if ((n.port[i] ?? 0) > 0 !== used) continue;
+				const d = n.den[i];
+				const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
+				const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
+				ctx.moveTo(n.px, n.py);
+				ctx.quadraticCurveTo(mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty);
+				tips.push(tx, ty);
+				if (d.b && this.quality > 1 && !used) {
+					const [r3x, r3y] = this.rotv(d.b);
+					ctx.moveTo(mx, my);
+					ctx.lineTo(n.px + r3x * k, n.py + r3y * k);
+					tips.push(n.px + r3x * k, n.py + r3y * k);
+				}
 			}
+			ctx.stroke();
+			ctx.fillStyle = "rgba(" + col + "," + a + ")";
+			ctx.beginPath();
+			const r = bw * (used ? 1.5 : 1);
+			for (let i = 0; i < tips.length; i += 2) {
+				ctx.moveTo(tips[i] + r, tips[i + 1]);
+				ctx.arc(tips[i], tips[i + 1], r, 0, 6.2832);
+			}
+			ctx.fill();
 		}
-		ctx.stroke();
-		ctx.fillStyle = "rgba(" + col + "," + al + ")";
-		ctx.beginPath();
-		for (let i = 0; i < tips.length; i += 2) {
-			ctx.moveTo(tips[i] + bw, tips[i + 1]);
-			ctx.arc(tips[i], tips[i + 1], bw, 0, 6.2832);
-		}
-		ctx.fill();
 	}
 
 	private drawSignals(fn: Cell | null, f: number): void {
 		const ctx = this.ctx, dpr = this.dpr;
 		for (const s of this.signals) {
-			const ed = this.edges[s.e], a = this.nodes[s.rev ? ed[1] : ed[0]], b = this.nodes[s.rev ? ed[0] : ed[1]], t = s.t, u = 1 - t;
+			const ed = this.edges[s.e], a = this.nodes[s.rev ? ed[1] : ed[0]], b = this.nodes[s.rev ? ed[0] : ed[1]];
 			if (a.off || b.off) continue;
-			const [cx, cy] = this.ctrl(a, b, s.rev ? -ed[2] : ed[2]);
-			const x = u * u * a.px + 2 * u * t * cx + t * t * b.px, y = u * u * a.py + 2 * u * t * cy + t * t * b.py;
+			const [x, y] = this.edgePoint(s.e, !s.rev, s.t);
 			const al = (1 - ((a.pd + b.pd) / 2) * 0.6) * (fn && ed[0] !== f && ed[1] !== f ? 0.3 : 1);
 			if (this.quality > 0) {
 				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.35;

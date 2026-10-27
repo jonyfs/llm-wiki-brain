@@ -14,7 +14,7 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
 - **Search and Ask**: type to dim everything that does not match; press `Enter` to ask, and the answer spreads two hops along the links.
 - **Filters**: page type, folder, tag, minimum links, edited in the last N days, orphans only, or only the neighborhood of the selected page. Filters are saved with the pane.
 - **Lint**: orphan pages, pages with broken links and pages without a type get a dashed ring, with a clickable list.
-- **Four neuron shapes**, one per page type, so the type reads without color.
+- **Four neuron shapes**, one per page type, so the type reads without color. Each link leaves the cell through a free dendrite pointing toward the other page and ends on a dendrite of the other cell; busy hubs grow extra branches, and the free branches stay faint.
 - Works on desktop and mobile. No network access, no telemetry, no dependencies. Pauses when the pane is hidden and lowers detail when frames get slow.
 
 ## Page types
