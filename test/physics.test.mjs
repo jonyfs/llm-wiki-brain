@@ -124,9 +124,13 @@ test("a step stays fast for thousands of nodes (it must not go quadratic)", () =
 	const time = (n) => {
 		const nodes = mk(n), edges = Array.from({ length: n - 1 }, (_, i) => [i + 1, Math.floor(i / 2)]);
 		simStep(nodes, edges, 1);
-		const t = performance.now();
-		for (let i = 0; i < 3; i++) simStep(nodes, edges, 0.5);
-		return (performance.now() - t) / 3;
+		let best = Infinity; // best of five: a busy machine must not fail a test about complexity
+		for (let i = 0; i < 5; i++) {
+			const t = performance.now();
+			simStep(nodes, edges, 0.5);
+			best = Math.min(best, performance.now() - t);
+		}
+		return best;
 	};
 	const a = time(2000), b = time(8000);
 	assert.ok(b < a * 8, "2000 nodes " + a.toFixed(1) + " ms, 8000 nodes " + b.toFixed(1) + " ms"); // 4x the nodes: well under 16x
