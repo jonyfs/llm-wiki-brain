@@ -6,7 +6,7 @@ Itens adiados pela revisão CEO de 2026-10-27 (nenhum foi cortado de vez). Cada 
 - **O que:** renderer WebGL2 com fallback, física em worker/WASM, octree, instancing, OffscreenCanvas.
 - **Por quê:** vaults grandes (mais de 2.000 notas) com muita CPU; Brain Atlas e New 3D Graph já fazem.
 - **Gatilho:** mais de 3 relatos de lentidão, ou fps abaixo de 30 acima de 2.000 nós no benchmark B1.
-- **Contexto:** hoje Canvas 2D com grade espacial, LOD e qualidade adaptativa; teto de 800 nós (configurável até 2.000). Decisão do usuário: "Use motor leve".
+- **Contexto:** hoje Canvas 2D com grade espacial que acompanha a densidade, neurônios completos só para os maiores na tela, links retos acima de 3.500 e qualidade adaptativa; teto de 800 nós (configurável até 10.000; 10.000 nós desenham em 25 a 33 ms no harness, veja docs/benchmark.md). Decisão do usuário: "Use motor leve".
 - **Esforço:** humano XL / CC L. **Prioridade:** P3.
 
 ## Superfície de IA (D4, itens 90, 96, 97, 118, 119, 120, 121, 122)

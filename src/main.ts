@@ -202,7 +202,7 @@ class BrainSettingTab extends PluginSettingTab {
 			.setName(t("set.max.name"))
 			.setDesc(t("set.max.desc"))
 			.addSlider((s) =>
-				s.setLimits(100, 2000, 50).setValue(this.plugin.settings.maxNodes).setDynamicTooltip().onChange(async (v) => {
+				s.setLimits(100, 10000, 100).setValue(this.plugin.settings.maxNodes).setDynamicTooltip().onChange(async (v) => {
 					this.plugin.settings.maxNodes = v;
 					await this.plugin.saveSettings();
 				}),

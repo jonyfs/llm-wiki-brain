@@ -204,8 +204,10 @@ function makeGhost(rgb: string): HTMLCanvasElement {
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
 	const gr = g.createRadialGradient(S / 2, S / 2, S * 0.12, S / 2, S / 2, S / 2);
-	gr.addColorStop(0, "rgba(" + rgb + ",0.2)");
-	gr.addColorStop(0.75, "rgba(" + rgb + ",0.1)");
+	// Same cloud as before, only easier to see: a brighter core and a slower fade, still dissolving at the edge.
+	gr.addColorStop(0, "rgba(" + rgb + ",0.34)");
+	gr.addColorStop(0.55, "rgba(" + rgb + ",0.24)");
+	gr.addColorStop(0.85, "rgba(" + rgb + ",0.1)");
 	gr.addColorStop(1, "rgba(" + rgb + ",0)");
 	g.fillStyle = gr;
 	g.fillRect(0, 0, S, S);
@@ -284,6 +286,10 @@ export class BrainEngine {
 	private cleanups: (() => void)[] = [];
 	private running = false;
 	private quality = 2;
+	private simpleEdges = false;
+	private simTick = 0;
+	private fullFlags = new Uint8Array(0);
+	private candBuf: Cell[] = [];
 	private ema = 4;
 	private slow = 0;
 	private fast = 0;
@@ -404,10 +410,11 @@ export class BrainEngine {
 			const x = byPath.get(a), y = byPath.get(b);
 			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
+		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 3000 ? 0 : this.nodes.length > 900 ? 1 : 2; // start where a big vault can keep up
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
 		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
-		if (this.opts.reducedMotion) for (let s = 0, a = 1; s < 220; s++, a *= 0.985) this.simStep(a);
+		if (this.opts.reducedMotion) for (let s = 0, a = 1, steps = this.nodes.length > 3000 ? 70 : 220; s < steps; s++, a *= this.nodes.length > 3000 ? 0.95 : 0.985) this.simStep(a);
 		this.assignPorts();
 		this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
 		this.start();
@@ -905,6 +912,14 @@ export class BrainEngine {
 		out[o + 3] = ry / len;
 	}
 
+	/** Anchors of one link only (the large-graph path draws most links as straight lines and needs curves for few). */
+	private anchorEdge(i: number): void {
+		if (this.anc.length < this.edges.length * 8) this.anc = new Float64Array(this.edges.length * 8);
+		const e = this.edges[i];
+		this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
+		this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+	}
+
 	private computeAnchors(): void {
 		if (this.anc.length < this.edges.length * 8) this.anc = new Float64Array(this.edges.length * 8);
 		for (let i = 0; i < this.edges.length; i++) {
@@ -916,6 +931,7 @@ export class BrainEngine {
 
 	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
 	private ePts(ei: number, fwd: boolean): number[] {
+		if (this.simpleEdges) this.anchorEdge(ei);
 		return edgeCurve(this.anc, ei * 8, fwd, this.edges[ei][2]);
 	}
 
@@ -1203,10 +1219,14 @@ export class BrainEngine {
 		let busy = false; // something the user is driving or a one-off effect
 		let ambientOnly = false;
 		if (this.alpha > 0.004) {
-			this.simStep(this.alpha);
-			this.alpha *= 0.965;
+			// A step costs time in proportion to the nodes: with thousands, one step every few frames keeps the view responsive while it settles.
+			if (++this.simTick >= Math.min(4, Math.ceil(this.nodes.length / 3000))) {
+				this.simTick = 0;
+				this.simStep(this.alpha);
+				this.alpha *= 0.965;
+				this.portsDirty = true;
+			}
 			busy = true;
-			this.portsDirty = true;
 		} else {
 			this.alpha = 0;
 			if (this.portsDirty) {
@@ -1371,6 +1391,15 @@ export class BrainEngine {
 
 	private edgePath(list: number[]): void {
 		const ctx = this.ctx;
+		if (this.simpleEdges) { // thousands of links: straight lines between the somas, no dendrite geometry
+			for (const i of list) {
+				const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
+				if ((a.px < 0 && b.px < 0) || (a.px > this.W && b.px > this.W) || (a.py < 0 && b.py < 0) || (a.py > this.H && b.py > this.H)) continue;
+				ctx.moveTo(a.px, a.py);
+				ctx.lineTo(b.px, b.py);
+			}
+			return;
+		}
 		for (const i of list) {
 			const c = this.ePts(i, true);
 			ctx.moveTo(c[0], c[1]);
@@ -1383,7 +1412,8 @@ export class BrainEngine {
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
 		this.lowDetail = nodes.length > 600 || this.quality === 0;
-		this.computeAnchors();
+		this.simpleEdges = this.edges.length > 3500;
+		if (!this.simpleEdges) this.computeAnchors();
 		if (this.ghost) {
 			ctx.globalAlpha = this.ghostAlpha;
 			for (const L of LOBES) {
@@ -1440,16 +1470,21 @@ export class BrainEngine {
 		}
 		this.drawRoutes();
 		const order = this.order;
-		for (let i = 1; i < order.length; i++) {
-			const cur = order[i];
-			let j = i - 1;
-			while (j >= 0 && order[j].pz < cur.pz) {
-				order[j + 1] = order[j];
-				j--;
-			}
-			order[j + 1] = cur;
-		}
+		order.sort((p, q) => q.pz - p.pz); // far to near; the sort is adaptive, so a barely changed order costs about one pass
 		const m = 70 * dpr, warn = this.tNow < this.flagUntil, lowDetail = this.lowDetail;
+		// Full neurons are costly (a polygon, a gradient, branches): only the biggest on screen get one, the rest are sprites.
+		const budget = this.quality > 1 ? 350 : this.quality === 1 ? 140 : 0;
+		if (this.fullFlags.length !== nodes.length) this.fullFlags = new Uint8Array(nodes.length);
+		const full = this.fullFlags; // 1 = gets a full neuron this frame (ties in pr must not defeat the budget); reused, no per-frame allocation
+		full.fill(0);
+		if (order.length > budget) {
+			const on = this.candBuf;
+			on.length = 0;
+			for (const n of order) if (!n.off && n.pr > 4.5 * dpr) on.push(n);
+			if (on.length > budget) on.sort((p, q) => q.pr - p.pr);
+			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
+		} else for (const n of order) full[n.id] = 1;
+		let rings = 400; // pulse rings are a stroke each: a vault that just loaded must not draw ten thousand
 		for (const n of order) {
 			if (n.off || n.px < -m || n.px > this.W + m || n.py < -m || n.py > this.H + m) continue;
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
@@ -1458,7 +1493,8 @@ export class BrainEngine {
 			if (!lowDetail) this.drawDendrites(n, al * 0.65);
 			if (!lowDetail && this.quality > 1 && n.pr > 6 * dpr) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
-			if (this.quality > 0 && n.pr > 4.5 * dpr) {
+			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
+			if (this.quality > 0 && n.pr > 4.5 * dpr && (full[n.id] === 1 || special)) {
 				const gl = this.glowSprites[n.type];
 				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
 				this.drawSoma(n, al);
@@ -1476,7 +1512,7 @@ export class BrainEngine {
 				ctx.arc(n.px, n.py, n.pr * 1.28, -1.5708, -1.5708 + 6.2832 * charge);
 				ctx.stroke();
 			}
-			if (n.pulse > 0 && this.quality > 0) {
+			if (n.pulse > 0.08 && this.quality > 0 && (rings-- > 0 || special)) {
 				ctx.globalAlpha = n.pulse * 0.5 * al;
 				ctx.lineWidth = dpr;
 				ctx.strokeStyle = "rgb(" + this.palRGB[n.type] + ")";

@@ -44,11 +44,19 @@ export interface PhysNode {
 
 export type LinkPair = readonly [number, number, ...unknown[]];
 
-const REPEL = 1100, CS = 150, CUT2 = CS * CS, REST = 34;
+const REPEL = 1100, REST = 34;
+const BRAIN_VOLUME = 27e6; // all lobes together, in world units cubed
+
+/** Cell size = repulsion cutoff. The brain is a fixed volume, so with more nodes the typical spacing shrinks and a fixed 150 would put every node in range of every other (quadratic). One and a half spacings keep about 100 neighbours per node however many there are. */
+export function cellSize(n: number): number {
+	const spacing = Math.cbrt(BRAIN_VOLUME / Math.max(1, n));
+	return Math.max(24, Math.min(150, 1.6 * spacing));
+}
 const key = (ix: number, iy: number, iz: number) => ((ix + 512) * 1024 + (iy + 512)) * 1024 + (iz + 512);
 
 /** One step. Cells repel inside a spatial hash, links pull to a rest length, and each cell is held inside its lobe. */
 export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: number): void {
+	const CS = cellSize(nodes.length), CUT2 = CS * CS;
 	const grid = new Map<number, PhysNode[]>();
 	for (const a of nodes) {
 		const kk = key(Math.floor(a.x / CS), Math.floor(a.y / CS), Math.floor(a.z / CS));

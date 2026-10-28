@@ -102,3 +102,33 @@ test("nodes bunched to one side of a lobe cover it side to side afterwards", () 
 		assert.ok(std(v) > 0.3, "spread " + std(v).toFixed(2));
 	}
 });
+
+import { cellSize } from "../.test-build/physics.mjs";
+
+test("cellSize shrinks as the brain fills up, within bounds", () => {
+	assert.equal(cellSize(10), 150);
+	assert.ok(cellSize(1000) < cellSize(100));
+	assert.ok(cellSize(10000) < cellSize(1000));
+	assert.equal(cellSize(1e7), 24);
+});
+
+test("a step stays fast for thousands of nodes (it must not go quadratic)", () => {
+	const mk = (n) => {
+		let seed = 7;
+		const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+		return Array.from({ length: n }, (_, i) => {
+			const l = Math.floor(r() * 7), L = LOBES[l];
+			return { id: i, lobe: l, side: L.side, x: L.c[0] + (r() - 0.5) * L.r[0], y: L.c[1] + (r() - 0.5) * L.r[1], z: L.c[2] + (r() - 0.5) * L.r[2], vx: 0, vy: 0, vz: 0 };
+		});
+	};
+	const time = (n) => {
+		const nodes = mk(n), edges = Array.from({ length: n - 1 }, (_, i) => [i + 1, Math.floor(i / 2)]);
+		simStep(nodes, edges, 1);
+		const t = performance.now();
+		for (let i = 0; i < 3; i++) simStep(nodes, edges, 0.5);
+		return (performance.now() - t) / 3;
+	};
+	const a = time(2000), b = time(8000);
+	assert.ok(b < a * 8, "2000 nodes " + a.toFixed(1) + " ms, 8000 nodes " + b.toFixed(1) + " ms"); // 4x the nodes: well under 16x
+	assert.ok(b < 150, "8000 nodes took " + b.toFixed(1) + " ms per step");
+});
