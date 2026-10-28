@@ -6,7 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { AXON_TIPS, assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
+import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
 import { quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
@@ -176,7 +176,7 @@ function rng(seed: number): () => number {
 }
 
 function hexToRgb(h: string): number[] {
-	return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)];
+	return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 }
 
 function mix(h: string, t: number[], amt: number): string {
@@ -186,13 +186,13 @@ function mix(h: string, t: number[], amt: number): string {
 
 function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement {
 	const S = 96;
-	const c = document.createElement("canvas");
+	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
 	const rgb = hexToRgb(color);
 	const gl = g.createRadialGradient(S / 2, S / 2, S * 0.08, S / 2, S / 2, S / 2);
-	gl.addColorStop(0, "rgba(" + rgb + "," + glow + ")");
-	gl.addColorStop(1, "rgba(" + rgb + ",0)");
+	gl.addColorStop(0, "rgba(" + rgb.join(",") + "," + glow + ")");
+	gl.addColorStop(1, "rgba(" + rgb.join(",") + ",0)");
 	g.fillStyle = gl;
 	g.fillRect(0, 0, S, S);
 	if (!core) return c;
@@ -209,7 +209,7 @@ function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement
 
 function makeGhost(rgb: string): HTMLCanvasElement {
 	const S = 128;
-	const c = document.createElement("canvas");
+	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
 	const gr = g.createRadialGradient(S / 2, S / 2, S * 0.12, S / 2, S / 2, S / 2);
@@ -657,7 +657,7 @@ export class BrainEngine {
 		}
 		if (!target || target === from || target.off) return null;
 		const allowed = (i: number) => !this.nodes[i].off && (!o.viewOnly || this.onScreen(this.nodes[i]));
-		const route = findRoute(this.nodes.map((n) => n.adj), from.id, target.id, (i) => allowed(i) || i === from.id || i === target!.id, 8);
+		const route = findRoute(this.nodes.map((n) => n.adj), from.id, target.id, (i) => allowed(i) || i === from.id || i === target.id, 8);
 		const segs: [number, number, number, number][] = [];
 		if (route) {
 			for (let i = 0; i + 1 < route.length; i++) segs.push([route[i], route[i + 1], this.edgeK(route[i], route[i + 1]) ?? 0.1, this.edgeOf(route[i], route[i + 1])]);
@@ -1166,8 +1166,8 @@ export class BrainEngine {
 	private bind(): void {
 		const c = this.canvas;
 		const on = <K extends keyof HTMLElementEventMap>(t: K, fn: (e: HTMLElementEventMap[K]) => void, o?: AddEventListenerOptions) => {
-			c.addEventListener(t, fn as EventListener, o);
-			this.cleanups.push(() => c.removeEventListener(t, fn as EventListener));
+			c.addEventListener(t, fn, o);
+			this.cleanups.push(() => c.removeEventListener(t, fn));
 		};
 		const toCanvas = (e: { clientX: number; clientY: number }) => {
 			const r = c.getBoundingClientRect();
@@ -1393,11 +1393,11 @@ export class BrainEngine {
 		if (this.running || !this.visible) return;
 		this.running = true;
 		this.last = performance.now();
-		this.raf = requestAnimationFrame((t) => this.frame(t));
+		this.raf = window.requestAnimationFrame((t) => this.frame(t));
 	}
 
 	destroy(): void {
-		cancelAnimationFrame(this.raf);
+		window.cancelAnimationFrame(this.raf);
 		this.running = false;
 		this.ro.disconnect();
 		this.io?.disconnect();
@@ -1600,13 +1600,13 @@ export class BrainEngine {
 			} catch (err) {
 				this.quality = 0;
 				this.signals = [];
-				console.warn("llm-wiki-brain: draw failed", err);
+				console.error("llm-wiki-brain: draw failed", err);
 				this.reportDrawFailure(this.opts.text("status.drawFailed", { error: err instanceof Error ? err.message : String(err) }));
 			}
 			this.lastDraw = now;
 			this.tune(performance.now() - t0);
 		}
-		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible) this.raf = requestAnimationFrame((t) => this.frame(t));
+		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible) this.raf = window.requestAnimationFrame((t) => this.frame(t));
 		else this.running = false;
 	}
 

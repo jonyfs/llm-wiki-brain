@@ -12,12 +12,13 @@ export const MAX_VIEWS = 20;
 export function cleanViews(raw: unknown): SavedView[] {
 	if (!Array.isArray(raw)) return [];
 	const seen = new Set<string>(), out: SavedView[] = [];
-	for (const v of raw) {
-		if (!v || typeof v !== "object") continue;
+	for (const item of raw as unknown[]) {
+		if (!item || typeof item !== "object") continue;
+		const v = item as { name?: unknown; query?: unknown; filters?: unknown };
 		const name = typeof v.name === "string" ? v.name.trim().slice(0, 40) : "";
 		if (!name || seen.has(name.toLowerCase())) continue;
 		seen.add(name.toLowerCase());
-		out.push({ name, query: typeof v.query === "string" ? v.query : "", filters: v.filters && typeof v.filters === "object" && !Array.isArray(v.filters) ? { ...v.filters } : {} });
+		out.push({ name, query: typeof v.query === "string" ? v.query : "", filters: v.filters && typeof v.filters === "object" && !Array.isArray(v.filters) ? { ...(v.filters as Record<string, unknown>) } : {} });
 		if (out.length >= MAX_VIEWS) break;
 	}
 	return out;

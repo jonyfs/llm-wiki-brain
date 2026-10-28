@@ -125,7 +125,10 @@ export class BrainView extends ItemView {
 		isBusy: () => this.engine?.isBusy() ?? false,
 		run: () => {
 			const after = this.afterRefresh.splice(0);
-			void this.refresh().then(() => after.forEach((f) => f()));
+			void (async () => {
+				await this.refresh();
+				after.forEach((f) => f());
+			})();
 		},
 		now: () => Date.now(),
 		schedule: (fn, ms) => window.setTimeout(fn, ms),
@@ -748,7 +751,7 @@ export class BrainView extends ItemView {
 	}
 
 	private currentChips(): Chip[] {
-		return activeChips({ ...this.filters, hidden: this.filters.hidden as string[] }, this.neighborhood, this.extraQuery, this.isolate?.size ?? 0);
+		return activeChips({ ...this.filters, hidden: this.filters.hidden }, this.neighborhood, this.extraQuery, this.isolate?.size ?? 0);
 	}
 
 	/** One removable chip per filter that is on, under the search box. */
@@ -772,7 +775,7 @@ export class BrainView extends ItemView {
 		if (c.key === "hood") this.neighborhood = null;
 		else if (c.key === "extra") this.extraQuery = "";
 		else if (c.key === "isolate") this.isolate = null;
-		else this.filters = withoutChip(this.filters, c.key) as Filters;
+		else this.filters = withoutChip<Filters>(this.filters, c.key);
 		this.syncControls(true);
 	}
 
@@ -866,8 +869,7 @@ export class BrainView extends ItemView {
 	}
 
 	private copyHits(): void {
-		if (!this.hits.length) return;
-		void navigator.clipboard.writeText(toWikiLinks(this.hits)).then(() => new Notice(this.t("status.copied", { n: this.hits.length })));
+		if (this.hits.length) void this.copyLinks(this.hits);
 	}
 
 	/* ---------- Replay ---------- */
@@ -939,8 +941,8 @@ export class BrainView extends ItemView {
 		this.tooltip.show();
 		const r = this.stage.getBoundingClientRect();
 		const x = Math.min(ev.clientX - r.left + 14, Math.max(0, r.width - 230)), y = Math.min(ev.clientY - r.top + 16, Math.max(0, r.height - 60));
-		this.tooltip.style.left = x + "px";
-		this.tooltip.style.top = y + "px";
+		this.tooltip.style.setProperty("--tip-x", x + "px"); // the position lives in the stylesheet; only the numbers are set here
+		this.tooltip.style.setProperty("--tip-y", y + "px");
 	}
 
 	private showInfo(info: NodeInfo | null): void {
@@ -972,7 +974,7 @@ export class BrainView extends ItemView {
 		});
 		act(info.pinned ? this.t("info.unpin") : this.t("info.pin"), () => this.engine?.togglePin(info.path));
 		act(this.t("info.attend"), () => this.attend(info.path));
-		act(this.t("info.copy"), () => this.copyLinks([info.path]));
+		act(this.t("info.copy"), () => void this.copyLinks([info.path]));
 		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.neuron", { inn: info.inputs.length, out: info.outputs.length, theta: info.threshold }) });
 		const side = (title: string, items: { path: string; label: string }[], open: boolean) => {
 			if (!items.length) return;
@@ -1014,7 +1016,7 @@ export class BrainView extends ItemView {
 			this.isolate = new Set(paths);
 			this.applyFilters();
 		});
-		act(this.t("multi.copy"), () => this.copyLinks(paths));
+		act(this.t("multi.copy"), () => void this.copyLinks(paths));
 		act(this.t("multi.canvas"), () => void this.makeCanvas(paths));
 		if (paths.length === 2) act(this.t("multi.route"), () => this.routeBetween(paths[0], paths[1]));
 		const list = this.info.createDiv({ cls: "llm-wiki-brain-neighbors" });
@@ -1027,8 +1029,9 @@ export class BrainView extends ItemView {
 		this.status.setText(r.virtual ? this.t("status.flowVirtual", { from: stem(r.from), to: stem(r.to) }) : this.t("status.flowRoute", { from: stem(r.from), to: stem(r.to), hops: r.hops }));
 	}
 
-	private copyLinks(paths: string[]): void {
-		void navigator.clipboard.writeText(toWikiLinks(paths)).then(() => new Notice(this.t("status.copied", { n: paths.length })));
+	private async copyLinks(paths: string[]): Promise<void> {
+		await navigator.clipboard.writeText(toWikiLinks(paths));
+		new Notice(this.t("status.copied", { n: paths.length }));
 	}
 
 	private contextMenu(path: string | null, ev: MouseEvent): void {
@@ -1037,7 +1040,7 @@ export class BrainView extends ItemView {
 		if (path) {
 			m.addItem((i) => i.setTitle(this.t("info.open")).setIcon("file-text").onClick(() => this.openNote(path)));
 			m.addItem((i) => i.setTitle(this.t("info.split")).setIcon("separator-vertical").onClick(() => this.openNote(path, true)));
-			m.addItem((i) => i.setTitle(this.t("info.copy")).setIcon("link").onClick(() => this.copyLinks(sel.length > 1 ? sel : [path])));
+			m.addItem((i) => i.setTitle(this.t("info.copy")).setIcon("link").onClick(() => void this.copyLinks(sel.length > 1 ? sel : [path])));
 			m.addItem((i) => i.setTitle(this.t("info.pin")).setIcon("pin").onClick(() => this.engine?.togglePin(path)));
 			m.addItem((i) => i.setTitle(this.t("info.onlyNeighborhood")).setIcon("focus").onClick(() => {
 				this.neighborhood = path;
