@@ -10,3 +10,6 @@ scripts/harness/v9.html
 scripts/harness/bundleC*.js
 scripts/harness/vC*.html
 scripts/harness/bundle-ui.js
+site/assets/demo.js
+site/assets/plugin.css
+site/assets/brain.jpg

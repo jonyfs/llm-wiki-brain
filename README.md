@@ -2,6 +2,8 @@
 
 See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each `[[wikilink]]` is a synapse, and pages with more links grow bigger. Built for [LLM wikis](https://github.com/jonyfs/llm-wiki-template) (`wiki/sources`, `wiki/entities`, `wiki/concepts`, `wiki/syntheses`, plus `wiki/index.md` and `wiki/log.md`), and it works on any vault.
 
+**Website and live demo: https://jonyfs.github.io/llm-wiki-brain/** (the real view and engine running in the browser on a made-up wiki; in English, Portuguese, Spanish and French).
+
 ![The plugin's own view on a demo vault: type chips and toolbar at the top, search with an active filter chip and a result list, a selected page with its inputs and outputs, a Flow packet in flight, the legend and the status line](docs/images/brain.jpg)
 
 *Rendered by the plugin's real view, engine and `styles.css` on a synthetic demo vault (generic LLM-wiki page names), in Obsidian's default dark theme. See `scripts/harness/ui.html`.*
@@ -165,6 +167,8 @@ npm run dev     # watch build
 npm run build   # type-check and production build
 npm test        # pure modules: search, filters, physics, neuron model, i18n, ...
 ```
+
+`site/` is the GitHub Pages website (the design system of the [LLM Wiki Template](https://jonyfs.github.io/llm-wiki-template/)); `npm run site` builds its generated parts (the demo bundle, the plugin stylesheet, the screenshot) and `python3 -m http.server -d site` previews it. The `Pages` workflow deploys it on every push to `main` that touches the site or the plugin source.
 
 `scripts/harness` runs the real engine in a browser on a synthetic vault (see its README); `ui.html` there runs the real view and styles with a small stand-in for the `obsidian` module, and is how the README image is made. `docs/RELEASE-CHECKLIST.md` is the manual check to run in a real Obsidian before a release.
 

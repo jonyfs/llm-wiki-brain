@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-nMfR7b+R/AkaCapsHZGtJGq+5zz6tccKyujDwcuLJCQ='; connect-src 'self' https://api.github.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=(), usb=()" />
+<meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
+<meta name="format-detection" content="telephone=no" />
+<title>LLM Wiki Brain: see your Obsidian wiki as a living 3D brain</title>
+<meta name="description" content="An Obsidian plugin that shows your wiki as a living 3D brain: pages are neurons, links are synapses, and information flows from the index to every page. Search, filter, replay and export. No network, no telemetry." />
+<link rel="canonical" href="https://jonyfs.github.io/llm-wiki-brain/" />
+<link rel="alternate" hreflang="en" href="https://jonyfs.github.io/llm-wiki-brain/" />
+<link rel="alternate" hreflang="pt" href="https://jonyfs.github.io/llm-wiki-brain/?lang=pt" />
+<link rel="alternate" hreflang="es" href="https://jonyfs.github.io/llm-wiki-brain/?lang=es" />
+<link rel="alternate" hreflang="fr" href="https://jonyfs.github.io/llm-wiki-brain/?lang=fr" />
+<link rel="alternate" hreflang="x-default" href="https://jonyfs.github.io/llm-wiki-brain/" />
+<link rel="alternate" type="text/plain" href="llms.txt" title="Notes for AI agents" />
+<link rel="sitemap" type="application/xml" href="sitemap.xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="LLM Wiki Brain" />
+<meta property="og:title" content="LLM Wiki Brain: see your Obsidian wiki as a living 3D brain" />
+<meta property="og:description" content="Pages are neurons, links are synapses. Flow, replay, search and export in an Obsidian plugin." />
+<meta property="og:url" content="https://jonyfs.github.io/llm-wiki-brain/" />
+<meta property="og:image" content="https://jonyfs.github.io/llm-wiki-brain/assets/social-preview.png" />
+<meta property="og:image:width" content="1280" />
+<meta property="og:image:height" content="640" />
+<meta property="og:image:alt" content="The LLM Wiki Brain view: a 3D brain of linked pages with a search box, filters and a details panel" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="LLM Wiki Brain" />
+<meta name="twitter:description" content="See your Obsidian wiki as a living 3D brain." />
+<meta name="twitter:image" content="https://jonyfs.github.io/llm-wiki-brain/assets/social-preview.png" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
+<meta name="theme-color" content="#7c8cff" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#4f5bd5" media="(prefers-color-scheme: light)" />
+<meta name="color-scheme" content="dark light" />
+<meta name="robots" content="index,follow,max-image-preview:large" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="assets/site.css" />
+<link rel="stylesheet" href="assets/plugin.css" />
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"LLM Wiki Brain","applicationCategory":"DeveloperApplication","operatingSystem":"Obsidian (desktop and mobile)","description":"An Obsidian plugin that shows a wiki as a living 3D brain: pages are neurons, links are synapses.","url":"https://jonyfs.github.io/llm-wiki-brain/","downloadUrl":"https://github.com/jonyfs/llm-wiki-brain/releases/latest","license":"https://opensource.org/licenses/MIT","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Person","name":"jonyfs","url":"https://github.com/jonyfs"}}</script>
+</head>
+<body>
+<script>(function(){var d=document.documentElement,t='dark';try{t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');}catch(e){}d.setAttribute('data-theme',t);if('IntersectionObserver' in window)d.classList.add('js');})();</script>
+<div id="progress" aria-hidden="true"></div>
+<a class="skip" href="#content" data-i18n="skip">Skip to content</a>
+<button id="backToTop" class="ctl" type="button" hidden aria-label="Back to top" data-i18n-attr="aria-label:a.top;title:a.top" title="Back to top"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+
+<header class="site-nav" id="top">
+  <div class="container nav-row">
+    <a class="brand" href="#top"><span class="dot" aria-hidden="true"></span>LLM Wiki Brain</a>
+    <div class="nav-actions">
+      <button class="ctl theme-toggle" id="themeToggle" type="button" aria-label="Toggle color theme" data-i18n-attr="aria-label:a.theme;title:a.theme" title="Toggle color theme"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="moon"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      <a class="btn primary nav-cta" href="https://github.com/jonyfs/llm-wiki-brain/releases/latest" data-i18n="nav.cta">Get the plugin</a>
+      <button class="ctl menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="navPanel" aria-label="Menu" data-i18n-attr="aria-label:a.menu"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path class="bars" d="M4 7h16M4 12h16M4 17h16"/><path class="x" d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <nav class="nav-panel" id="navPanel" aria-label="Primary" data-i18n-attr="aria-label:a.primary">
+      <div class="nav-links">
+        <a href="#demo" data-i18n="nav.demo">Live demo</a>
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#neuron" data-i18n="nav.neuron">Neuron model</a>
+        <a href="#search" data-i18n="nav.search">Search</a>
+        <a href="#use" data-i18n="nav.use">Shortcuts</a>
+        <a href="#start" data-i18n="nav.start">Install</a>
+        <a href="#faq" data-i18n="nav.faq">FAQ</a>
+      </div>
+      <div class="nav-tools">
+        <select class="field" id="langSelect" aria-label="Language" data-i18n-attr="aria-label:a.lang">
+          <option value="en">EN</option>
+          <option value="pt">PT</option>
+          <option value="es">ES</option>
+          <option value="fr">FR</option>
+        </select>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="content" tabindex="-1">
+
+<header class="hero">
+  <div class="container">
+    <span class="badge" data-i18n="hero.badge">Obsidian plugin · No network · MIT</span>
+    <h1 class="hero-title" data-i18n="hero.title">See your wiki as a living <span class="grad">3D brain</span></h1>
+    <p class="hero-sub" data-i18n="hero.sub"><strong>Each page is a neuron, each link a synapse.</strong> LLM Wiki Brain turns your Obsidian vault into a brain you can rotate, search, filter and replay, and shows how information flows from the index to every page.</p>
+    <div class="hero-cta">
+      <a class="btn primary" href="#start" data-i18n="hero.cta1">Install the plugin</a>
+      <a class="btn" href="#demo" data-i18n="hero.cta2">Try the live demo</a>
+      <a class="btn" href="https://github.com/jonyfs/llm-wiki-brain" data-i18n="hero.cta3">View on GitHub</a>
+    </div>
+    <p class="hero-meta"><span id="mVersion" data-i18n="hero.m0">Obsidian 1.5 or newer</span><span data-i18n="hero.m1">Desktop and mobile</span><span data-i18n="hero.m2">No telemetry, no dependencies</span><span data-i18n="hero.m3">EN · PT · ES · FR</span><span id="mStars" hidden></span></p>
+    <figure class="shot">
+      <img src="assets/brain.jpg" width="1456" height="835" alt="The plugin's view: a 3D brain of linked pages with type chips and a toolbar on top, a search box with an active filter chip and a result list, a selected page with its inputs and outputs, a legend and a status line" data-i18n-attr="alt:hero.alt" decoding="async" fetchpriority="high" />
+    </figure>
+    <p class="shot-cap" data-i18n="hero.shotcap">The plugin's own view on a demo vault: a search with an active filter, a selected page with its inputs and outputs, a Flow wave in motion, the legend and the status line.</p>
+  </div>
+</header>
+
+<section id="demo">
+  <div class="container">
+    <p class="eyebrow" data-i18n="demo.eyebrow">Try it</p>
+    <h2 class="section-title" data-i18n="demo.title">The real plugin, running in your browser</h2>
+    <p class="section-sub" data-i18n="demo.sub">This is the plugin's own view and engine on a made-up LLM wiki. Press <strong>Flow</strong> to send information from the index to every page, drag to rotate, click a neuron, type in the search box.</p>
+    <div class="demo-frame" id="demo-frame"><div id="demo-mount" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="demo-loading" data-i18n="demo.loading">Loading the demo…</div></div></div>
+    <p class="hint" data-i18n="demo.hint">Tip: <span class="kbd">Alt</span>+drag selects an area, <span class="kbd">?</span> lists the shortcuts. The demo notes are made up; your own notes never leave your machine.</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <p class="eyebrow" data-i18n="feat.eyebrow">What it does</p>
+    <h2 class="section-title" data-i18n="feat.title">A living picture of your wiki</h2>
+    <p class="section-sub" data-i18n="feat.sub">Built for LLM wikis (sources, entities, concepts, syntheses, an index and a log) and useful on any vault.</p>
+    <div class="grid cards-3">
+      <div class="card"><h3 data-i18n="f1.t">A brain made of your notes</h3><p data-i18n="f1.p">Linked pages share a region of the brain. A soft cloud shows its volume and the neurons fill it, from ten pages to ten thousand.</p></div>
+      <div class="card"><h3 data-i18n="f2.t">Flow: information reaches every page</h3><p data-i18n="f2.p">A wave leaves the index and crosses the links hop by hop, with rings, comets and glowing links, and a counter of the pages reached.</p></div>
+      <div class="card"><h3 data-i18n="f3.t">Replay the wiki growing</h3><p data-i18n="f3.p">Watch the pages return in creation order, with what the log recorded each day, a scrubber, speed and loop.</p></div>
+      <div class="card"><h3 data-i18n="f4.t">Search and Ask</h3><p data-i18n="f4.p">Words, <code>tag:</code>, <code>links:&gt;3</code>, <code>edited:&lt;7d</code>, <code>is:orphan</code>, regex. Press Enter to ask: the answer spreads along the links.</p></div>
+      <div class="card"><h3 data-i18n="f5.t">Filters and saved views</h3><p data-i18n="f5.p">Type, folder, tag, links, dates, direction, a filter query and the log. Active filters are chips you remove with one click.</p></div>
+      <div class="card"><h3 data-i18n="f6.t">Select, isolate, export</h3><p data-i18n="f6.p">Select a group by click, area or lobe; isolate it, copy it as links, turn it into an Obsidian Canvas, or save the view as a PNG.</p></div>
+      <div class="card"><h3 data-i18n="f7.t">Lint what is broken</h3><p data-i18n="f7.p">Orphans, broken links and untyped pages get a ring and a clickable list, so the wiki stays healthy.</p></div>
+      <div class="card"><h3 data-i18n="f8.t">Fast and private</h3><p data-i18n="f8.p">Canvas 2D, no network, no telemetry. About 25 ms a frame at 10,000 pages in our synthetic benchmark; full neurons only where they are big enough to see.</p></div>
+      <div class="card"><h3 data-i18n="f9.t">Four languages</h3><p data-i18n="f9.p">English, Portuguese (Brazil), Spanish and French, following Obsidian's language.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="container">
+    <p class="eyebrow" data-i18n="how.eyebrow">How it works</p>
+    <h2 class="section-title" data-i18n="how.title">From a vault to a brain</h2>
+    <p class="section-sub" data-i18n="how.sub">Everything is derived from what Obsidian already knows.</p>
+    <div class="flow-card">
+      <ol class="diagram cols-4">
+        <li><div class="node"><b data-i18n="h1.t">Your vault</b><span data-i18n="h1.s">Notes, <code>[[links]]</code>, tags, frontmatter, <code>wiki/log.md</code></span></div><span class="arrow" aria-hidden="true"></span></li>
+        <li><div class="node"><b data-i18n="h2.t">A directed graph</b><span data-i18n="h2.s">A link leaves the page that holds it and lands on the page it points to</span></div><span class="arrow" aria-hidden="true"></span></li>
+        <li><div class="node"><b data-i18n="h3.t">A neuron model</b><span data-i18n="h3.s">Pages add up inputs, fire at a threshold, learn and fade</span></div><span class="arrow" aria-hidden="true"></span></li>
+        <li><div class="node hl"><b data-i18n="h4.t">The brain</b><span data-i18n="h4.s">Lobes, dendrites, axons and a wave you can watch</span></div><span class="arrow" aria-hidden="true"></span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="neuron">
+  <div class="container">
+    <p class="eyebrow" data-i18n="n.eyebrow">The analogy</p>
+    <h2 class="section-title" data-i18n="n.title">The neuron model</h2>
+    <p class="section-sub" data-i18n="n.sub">The picture follows the biology, so what you see says something about your wiki.</p>
+    <div class="table-wrap"><table class="compare">
+      <thead><tr><th data-i18n="n.th1">Biology</th><th data-i18n="n.th2">In the plugin</th></tr></thead>
+      <tbody>
+        <tr><td data-i18n="r1a">Dendrites</td><td data-i18n="r1b">Inputs: the pages that link to this one</td></tr>
+        <tr><td data-i18n="r2a">Axon</td><td data-i18n="r2b">Outputs: the links this page contains</td></tr>
+        <tr><td data-i18n="r3a">Synaptic strength</td><td data-i18n="r3b">How often a link is repeated; links used together grow stronger and fade when idle</td></tr>
+        <tr><td data-i18n="r4a">Firing threshold</td><td data-i18n="r4b">A page fires all-or-nothing when the charge it received reaches a threshold that grows with its inputs; the arc around it shows how close it is</td></tr>
+        <tr><td data-i18n="r5a">Inhibition</td><td data-i18n="r5b">A <code>contradicts:</code> link in the frontmatter lowers the target's charge; its spikes are red</td></tr>
+        <tr><td data-i18n="r6a">Myelin</td><td data-i18n="r6b">Links between busy pages conduct faster, in jumps</td></tr>
+        <tr><td data-i18n="r7a">Attention</td><td data-i18n="r7b">Pages that are similar but not linked light up for a moment, with weights</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="search">
+  <div class="container">
+    <p class="eyebrow" data-i18n="s.eyebrow">Search syntax</p>
+    <h2 class="section-title" data-i18n="s.title">Ask your wiki</h2>
+    <p class="section-sub" data-i18n="s.sub">One search box filters, highlights and asks. Press Enter to ask: the answer spreads along the links.</p>
+    <div class="table-wrap"><table class="compare">
+      <thead><tr><th data-i18n="s.th1">Syntax</th><th data-i18n="s.th2">Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>attention cache</code></td><td data-i18n="s1">Every word must appear in the name, path, headings or tags</td></tr>
+        <tr><td><code>tag:ai or tag:ml</code></td><td data-i18n="s2">Either side may match</td></tr>
+        <tr><td><code>-type:source</code></td><td data-i18n="s9">Exclude a term</td></tr>
+        <tr><td><code>links:&gt;3</code></td><td data-i18n="s3">Number of links</td></tr>
+        <tr><td><code>edited:&lt;7d</code> <code>created:&gt;2026-01-01</code></td><td data-i18n="s4">Age or date</td></tr>
+        <tr><td><code>prop:status=draft</code></td><td data-i18n="s5">Frontmatter property: equals, contains, exists</td></tr>
+        <tr><td><code>is:orphan</code> <code>is:broken</code> <code>is:hub</code></td><td data-i18n="s6">Page state: orphan, broken, untyped, index, log, hub</td></tr>
+        <tr><td><code>to:attention</code> <code>from:index</code></td><td data-i18n="s7">Links to a page / is linked from a page</td></tr>
+        <tr><td><code>/kv-?cache/</code></td><td data-i18n="s8">Regular expression</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section id="use">
+  <div class="container">
+    <p class="eyebrow" data-i18n="u.eyebrow">Use it</p>
+    <h2 class="section-title" data-i18n="u.title">Commands and shortcuts</h2>
+    <div class="grid two">
+      <div class="card"><h3 data-i18n="c1.t">Commands</h3>
+        <ul class="tick">
+          <li data-i18n="cm1">Open brain view</li><li data-i18n="cm2">Ask the brain</li><li data-i18n="cm3">Send information from the index to every page</li><li data-i18n="cm4">Replay the wiki growing in creation order</li><li data-i18n="cm5">Run wiki lint overlay</li><li data-i18n="cm6">Focus the search box</li><li data-i18n="cm7">Clear filters and search</li><li data-i18n="cm8">Save the view as an image</li><li data-i18n="cm9">Make a canvas from the selection</li>
+        </ul>
+      </div>
+      <div class="card"><h3 data-i18n="c2.t">Keyboard and mouse</h3>
+        <ul class="tick">
+          <li data-i18n="k1"><span class="kbd">Drag</span> rotate · <span class="kbd">Shift</span>+drag pan · wheel zoom</li>
+          <li data-i18n="k2"><span class="kbd">Click</span> select · <span class="kbd">Cmd/Ctrl</span>+click add · <span class="kbd">Alt</span>+drag select an area</li>
+          <li data-i18n="k3"><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> front, top, side · <span class="kbd">0</span> reset</li>
+          <li data-i18n="k4"><span class="kbd">n</span> / <span class="kbd">p</span> next or previous hub · <span class="kbd">Alt</span>+arrows hop to a neighbour</li>
+          <li data-i18n="k5"><span class="kbd">Enter</span> open · <span class="kbd">Cmd/Ctrl</span>+<span class="kbd">Enter</span> open to the side · <span class="kbd">Esc</span> clear</li>
+          <li data-i18n="k6"><span class="kbd">?</span> lists every shortcut · right-click for a menu</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="container">
+    <p class="eyebrow" data-i18n="i.eyebrow">Install</p>
+    <h2 class="section-title" data-i18n="i.title">Get LLM Wiki Brain</h2>
+    <p class="section-sub" data-i18n="i.sub">The plugin is not in the Obsidian community directory yet. Install it with BRAT or by hand.</p>
+    <div class="grid two">
+      <div class="card prose">
+        <ol class="steps-list">
+          <li data-i18n="i1"><strong>BRAT (beta):</strong> in Obsidian, install the BRAT plugin, run <em>BRAT: Add a beta plugin</em> and enter <code>jonyfs/llm-wiki-brain</code>.</li>
+          <li data-i18n="i2"><strong>By hand:</strong> download <code>main.js</code>, <code>manifest.json</code> and <code>styles.css</code> from the <a href="https://github.com/jonyfs/llm-wiki-brain/releases/latest">latest release</a> into <code>&lt;vault&gt;/.obsidian/plugins/llm-wiki-brain/</code>.</li>
+          <li data-i18n="i3">Enable <em>LLM Wiki Brain</em> in Settings → Community plugins, then click the brain icon in the ribbon.</li>
+        </ol>
+      </div>
+      <div class="code-box">
+        <div class="qs" id="quickStart" data-label="terminal"><span class="line c"># inside your vault</span><span class="line">mkdir -p .obsidian/plugins/llm-wiki-brain</span><span class="line">cd .obsidian/plugins/llm-wiki-brain</span><span class="line"><span class="k">for</span> f in main.js manifest.json styles.css; <span class="k">do</span></span><span class="line">  curl -sLO https://github.com/jonyfs/llm-wiki-brain/releases/latest/download/$f</span><span class="line"><span class="k">done</span></span></div>
+        <button class="btn" id="copyQs" type="button" data-i18n="app.copy">Copy</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container faq">
+    <p class="eyebrow">FAQ</p>
+    <h2 class="section-title" data-i18n="faq.title">Questions</h2>
+    <details><summary data-i18n="q1">Does it send my notes anywhere?</summary><p data-i18n="a1">No. The plugin makes no network requests and has no telemetry. The demo on this page uses made-up pages.</p></details>
+    <details><summary data-i18n="q2">Does it work on any vault?</summary><p data-i18n="a2">Yes. By default it reads the <code>wiki</code> folder; empty that setting to use the whole vault. A page's type comes from the frontmatter <code>type</code>, then from folder names.</p></details>
+    <details><summary data-i18n="q3">How many pages can it show?</summary><p data-i18n="a3">From a handful to 10,000 (the limit is a setting; the default is 800). A frame takes about 25 ms at 10,000 pages in our synthetic benchmark; your results depend on your machine.</p></details>
+    <details><summary data-i18n="q4">Does it work on mobile?</summary><p data-i18n="a4">It is not desktop-only and handles touch (drag, pinch), but it has been tested mostly on desktop.</p></details>
+    <details><summary data-i18n="q5">Which languages does it speak?</summary><p data-i18n="a5">English, Portuguese (Brazil), Spanish and French. It follows Obsidian's language, and you can pick another in the settings.</p></details>
+    <details><summary data-i18n="q6">Is it related to the LLM Wiki Template?</summary><p data-i18n="a6">Yes, same author. The <a href="https://jonyfs.github.io/llm-wiki-template/">LLM Wiki Template</a> is a starting point for a wiki an AI assistant maintains; this plugin shows that wiki as a brain. This site reuses the template's design system.</p></details>
+  </div>
+</section>
+
+<section id="cta">
+  <div class="container final-cta">
+    <h2 class="section-title" data-i18n="fin.t">See your wiki think</h2>
+    <p class="section-sub mx" data-i18n="fin.p">Install the plugin and press Flow.</p>
+    <div class="hero-cta">
+      <a class="btn primary" href="https://github.com/jonyfs/llm-wiki-brain/releases/latest" data-i18n="fin.b1">Download the latest release</a>
+      <a class="btn" href="https://github.com/jonyfs/llm-wiki-brain" data-i18n="hero.cta3">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<p id="searchEmpty" hidden></p>
+</main>
+
+<footer>
+  <div class="container inner">
+    <div data-i18n="foot.l">LLM Wiki Brain · MIT license</div>
+    <ul>
+      <li><a href="https://github.com/jonyfs/llm-wiki-brain">GitHub</a></li>
+      <li><a href="https://github.com/jonyfs/llm-wiki-brain/releases">Releases</a></li>
+      <li><a href="changelog.html" data-i18n="foot.change">Changelog</a></li>
+      <li><a href="https://github.com/jonyfs/llm-wiki-brain/issues">Issues</a></li>
+      <li><a href="https://github.com/jonyfs/llm-wiki-brain/blob/main/README.md">README</a></li>
+      <li><a href="https://github.com/jonyfs/llm-wiki-brain/blob/main/TODOS.md" data-i18n="foot.road">Roadmap</a></li>
+      <li><a href="https://jonyfs.github.io/llm-wiki-template/">LLM Wiki Template</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script src="assets/i18n.js" defer></script>
+<script src="assets/app.js" defer></script>
+<script src="assets/demo.js" defer></script>
+</body>
+</html>

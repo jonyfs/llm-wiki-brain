@@ -4,6 +4,7 @@
 	flex-direction: column;
 	padding: 0;
 	overflow: hidden;
+	container-type: inline-size;
 }
 .llm-wiki-brain-stage {
 	position: relative;
@@ -374,5 +375,33 @@
 	.llm-wiki-brain-card {
 		left: 10px;
 		max-width: none;
+	}
+}
+
+/* Narrow panes (a side pane, a phone): the type chips take the top line, the toolbar becomes a popover opened with the dots button, and the search column moves below. */
+@container (max-width: 640px) {
+	.llm-wiki-brain-bar {
+		right: var(--size-4-2);
+		padding-right: 0;
+	}
+	.llm-wiki-brain-tools {
+		display: none;
+		top: 68px;
+		left: var(--size-4-2);
+		right: var(--size-4-2);
+		z-index: 4;
+		justify-content: flex-start;
+		padding: 6px;
+		background: var(--background-secondary);
+		border: 1px solid var(--background-modifier-border);
+		border-radius: var(--radius-m);
+		box-shadow: var(--shadow-s);
+	}
+	.llm-wiki-brain-tools.is-open {
+		display: flex;
+	}
+	.llm-wiki-brain-stack {
+		top: 68px;
+		max-height: calc(100% - 108px);
 	}
 }
