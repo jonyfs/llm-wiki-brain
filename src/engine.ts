@@ -1,7 +1,7 @@
 /* Brain engine: Canvas 2D with real perspective, depth sorting and neuron-shaped nodes.
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
-import { Net, cascade, hebb, synapsesOf, Spike } from "./synapse";
+import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { AXON_TIPS, assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
@@ -110,7 +110,8 @@ interface Signal {
 	v: number;
 	rev: boolean;
 	gen: number;
-	w: number; // strength carried to the target
+	w: number; // strength carried to the target (negative inhibits)
+	m: number; // myelination: how fast the spike runs between the nodes of Ranvier
 }
 
 interface Packet {
@@ -310,7 +311,7 @@ export class BrainEngine {
 	/* ---------- Data ---------- */
 
 	/** Replace the graph, keeping the position of pages that already exist so the brain does not jump. */
-	setGraph(pages: GraphNode[], links: [string, string][], saved?: Record<string, number[]>, counts?: Map<string, number>): void {
+	setGraph(pages: GraphNode[], links: [string, string][], saved?: Record<string, number[]>, counts?: Map<string, number>, inhibit?: Set<string>): void {
 		const old = this.byPath;
 		const next: Cell[] = [];
 		const byPath = new Map<string, Cell>();
@@ -397,7 +398,7 @@ export class BrainEngine {
 		}
 		this.net = new Net(this.nodes.length, synapsesOf(links.flatMap(([a, b]) => {
 			const x = byPath.get(a), y = byPath.get(b);
-			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b)] as [number, number, number?]] : [];
+			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
@@ -636,6 +637,26 @@ export class BrainEngine {
 		return { from: from.path, to: target.path, hops: segs.length, virtual: !route };
 	}
 
+	/** Attention: `focus` reaches pages it does not link to, with weights that exist only for the moment (dashed arcs, brighter = heavier). */
+	attend(focus: string, items: { path: string; w: number }[]): number {
+		const from = this.byPath.get(focus);
+		if (!from || from.off) return 0;
+		let n = 0;
+		for (const it of items) {
+			const to = this.byPath.get(it.path);
+			if (!to || to.off || to === from) continue;
+			const segs: [number, number, number, number][] = [[from.id, to.id, 0.3, -1]];
+			this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed() * (0.5 + it.w * 1.5), virtual: true, fade: 1, done: false });
+			to.lit = this.tNow + 1200 + it.w * 3500;
+			to.pulse = Math.max(to.pulse, 0.3 + it.w * 0.7);
+			n++;
+		}
+		from.pulse = 1;
+		from.lit = this.tNow + 2500;
+		if (n) this.start();
+		return n;
+	}
+
 	/** Ask: matching pages light up and the answer spreads two hops along the links. */
 	ask(paths: string[]): number {
 		const ids = paths.map((p) => this.byPath.get(p)).filter((n): n is Cell => !!n && !n.off).map((n) => n.id);
@@ -785,8 +806,8 @@ export class BrainEngine {
 		if (e == null || this.signals.length > (this.quality > 1 ? 16 : 6)) return;
 		const ed = this.edges[e];
 		if (ed[0] !== from && !this.mutual[e]) return;
-		const w = this.net?.out[from].find((x) => x.to === to)?.w ?? 1;
-		this.signals.push({ e, t: 0, v: 0.008 + Math.random() * 0.01, rev: ed[1] === from, gen, w });
+		const syn = this.net?.out[from].find((x) => x.to === to);
+		this.signals.push({ e, t: 0, v: 0.008 + Math.random() * 0.01, rev: ed[1] === from, gen, w: syn?.w ?? 1, m: syn && this.net ? myelinOf(this.net, syn) : 0 });
 	}
 
 	private spawnAmbient(): void {
@@ -1193,7 +1214,7 @@ export class BrainEngine {
 		}
 		for (let i = this.signals.length - 1; i >= 0; i--) {
 			const s = this.signals[i];
-			s.t += s.v * dt;
+			s.t += s.v * dt * conduction(s.m, s.t);
 			if (this.signals.length) ambientOnly = true;
 			if (s.t < 1) continue;
 			const ed = this.edges[s.e], to = s.rev ? ed[0] : ed[1], tn = this.nodes[to];
@@ -1205,7 +1226,7 @@ export class BrainEngine {
 				if (s.gen < 3) for (const o of this.net.fire(to)) this.sendSignal(to, o.to, s.gen + 1);
 				else this.net.fire(to);
 			} else {
-				tn.pulse = Math.max(tn.pulse, 0.25); // charged, not fired
+				tn.pulse = Math.max(tn.pulse, s.w < 0 ? 0.1 : 0.25); // charged (or held back by an inhibitory spike), not fired
 			}
 		}
 		for (let i = this.packets.length - 1; i >= 0; i--) {
@@ -1698,13 +1719,13 @@ export class BrainEngine {
 			const al = (1 - ((a.pd + b.pd) / 2) * 0.6) * (fn && ed[0] !== f && ed[1] !== f ? 0.3 : 1);
 			if (this.quality > 0) {
 				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.35;
-				ctx.fillStyle = "rgb(" + this.palRGB[a.type] + ")";
+				ctx.fillStyle = s.w < 0 ? "rgb(251,113,133)" : "rgb(" + this.palRGB[a.type] + ")";
 				ctx.beginPath();
 				ctx.arc(x, y, 5.5 * dpr, 0, 6.2832);
 				ctx.fill();
 			}
 			ctx.globalAlpha = clamp(al, 0.1, 1);
-			ctx.fillStyle = this.labelColor;
+			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.labelColor;
 			ctx.beginPath();
 			ctx.arc(x, y, 2 * dpr, 0, 6.2832);
 			ctx.fill();

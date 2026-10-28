@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
 import { creationTimes } from "./logParser";
+import { isInhibitoryKey } from "./synapse";
 import { fuzzyScore, matchesQuery, parseQuery } from "./query";
 import type { LangPref } from "./i18n";
 
@@ -79,6 +80,7 @@ export interface PageMeta {
 export interface VaultGraph {
 	pages: GraphNode[];
 	links: [string, string][];
+	inhibit: Set<string>; // "from>to" links that inhibit (frontmatter contradicts: [[x]])
 	counts: Map<string, number>; // "from>to" -> how many times the page links there
 	meta: Map<string, PageMeta>;
 	orphans: string[];
@@ -119,6 +121,15 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 		files = [...all].sort((a, b) => rank(b) - rank(a)).slice(0, s.maxNodes);
 	}
 	const keep = new Set(files.map((f) => f.path));
+	const inhibit = new Set<string>();
+	for (const f of files) {
+		for (const fl of app.metadataCache.getFileCache(f)?.frontmatterLinks ?? []) {
+			const key = fl.key.split(".")[0];
+			if (!isInhibitoryKey(key)) continue;
+			const dest = app.metadataCache.getFirstLinkpathDest?.(fl.link.split("#")[0], f.path);
+			if (dest && keep.has(dest.path) && dest.path !== f.path) inhibit.add(f.path + ">" + dest.path);
+		}
+	}
 	const meta = new Map<string, PageMeta>();
 	const pages: GraphNode[] = files.map((f) => {
 		const cache = app.metadataCache.getFileCache(f);
@@ -146,6 +157,7 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 		pages,
 		links: links.filter(([a, b]) => keep.has(a) && keep.has(b)),
 		counts,
+		inhibit,
 		meta,
 		orphans: files.filter((f) => !deg.get(f.path) && !special.has(f.path)).map((f) => f.path),
 		broken: files.filter((f) => Object.keys(unresolved[f.path] ?? {}).length > 0).map((f) => f.path),

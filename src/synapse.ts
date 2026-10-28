@@ -151,22 +151,43 @@ export function hebb(net: Net, spikes: Spike[]): void {
 		if (!sp.fires) continue;
 		const s = net.out[sp.from].find((x) => x.to === sp.to);
 		if (s) {
-			s.w = Math.min(net.o.wMax, s.w + net.o.hebb);
+			s.w = s.w < 0 ? Math.max(-net.o.wMax, s.w - net.o.hebb) : Math.min(net.o.wMax, s.w + net.o.hebb);
 			used.add(s);
 		}
 	}
 	for (let i = 0; i < net.n; i++) for (const s of net.out[i]) if (!used.has(s)) s.w += (s.base - s.w) * 0.1;
 }
 
-/** Synapses from directed links `[from, to, count]`; a link both ways gives two synapses. */
-export function synapsesOf(links: [number, number, number?][]): Synapse[] {
+/** Frontmatter keys whose links inhibit: a page that contradicts another quiets it instead of exciting it. */
+const INHIBIT = new Set(["contradicts", "contradiz", "contradice", "contredit", "conflicts", "conflitos", "refutes", "refuta", "disputes"]);
+
+export function isInhibitoryKey(key: string): boolean {
+	return INHIBIT.has(key.toLowerCase().trim());
+}
+
+/** Synapses from directed links `[from, to, count, inhibitory]`; a link both ways gives two synapses. */
+export function synapsesOf(links: [number, number, number?, boolean?][]): Synapse[] {
 	const seen = new Map<string, Synapse>();
-	for (const [a, b, c] of links) {
+	for (const [a, b, c, inh] of links) {
 		if (a === b) continue;
-		const k = a + ">" + b, w = weightOf(c ?? 1), prev = seen.get(k);
-		if (prev) {
-			prev.base = prev.w = Math.max(prev.w, w);
-		} else seen.set(k, { from: a, to: b, w, base: w });
+		const k = a + ">" + b, w = (inh ? -1 : 1) * weightOf(c ?? 1), prev = seen.get(k);
+		if (prev && !inh && prev.w > 0) prev.base = prev.w = Math.max(prev.w, w);
+		else if (!prev || inh) seen.set(k, { from: a, to: b, w, base: w }); // an inhibitory mention wins over a plain one
 	}
 	return Array.from(seen.values());
+}
+
+/** 0..1: how myelinated a synapse is. Busy hub to busy hub is the trunk road of the wiki. */
+export function myelinOf(net: Net, s: Synapse): number {
+	return Math.min(1, Math.sqrt(net.out[s.from].length * net.inn[s.to].length) / 10);
+}
+
+/**
+ * Speed multiplier at position `t` (0..1) along a synapse of myelination `m`: unmyelinated is a steady crawl;
+ * myelinated jumps between the nodes of Ranvier (fast stretches, brief slow ones), faster overall.
+ */
+export function conduction(m: number, t: number): number {
+	if (m <= 0) return 1;
+	const hop = (t * 6) % 1; // six nodes of Ranvier along the link
+	return 1 + m * (hop < 0.7 ? 2.4 : -0.6);
 }

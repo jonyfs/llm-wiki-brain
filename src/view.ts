@@ -7,6 +7,7 @@ import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 import { logOn, parseLog, LogEntry } from "./logParser";
 import { toWikiLinks } from "./query";
+import { attend } from "./attention";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
 
@@ -341,7 +342,7 @@ export class BrainView extends ItemView {
 		if (!this.engine) return;
 		this.logEntries = parseLog(log ?? "");
 		this.graph = buildVaultGraph(this.app, this.plugin.settings, log);
-		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout, this.graph.counts);
+		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout, this.graph.counts, this.graph.inhibit);
 		for (const t of this.filters.hidden) this.engine.setHidden(t, true);
 		this.fillSelects();
 		this.syncChips();
@@ -504,8 +505,26 @@ export class BrainView extends ItemView {
 			}
 		};
 		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.neuron", { inn: info.inputs.length, out: info.outputs.length, theta: info.threshold }) });
+		act(this.t("info.attend"), () => this.attend(info.path));
 		side(this.t("info.inputs"), info.inputs);
 		side(this.t("info.outputs"), info.outputs);
+	}
+
+	/** Show where the page would attend beyond its links: the most similar unlinked pages, weighted. */
+	private attend(path: string): void {
+		const g = this.graph, engine = this.engine;
+		if (!g || !engine) return;
+		const linked = new Set<string>([path]);
+		for (const [a, b] of g.links) {
+			if (a === path) linked.add(b);
+			if (b === path) linked.add(a);
+		}
+		const docs = g.pages.map((p, id) => ({ id, text: (g.meta.get(p.path)?.text ?? "") + " " + p.label }));
+		const focus = g.pages.findIndex((p) => p.path === path);
+		const exclude = new Set(g.pages.flatMap((p, i) => (linked.has(p.path) ? [i] : [])));
+		const hits = attend(focus, docs, exclude).map((h) => ({ path: g.pages[h.id].path, w: h.w }));
+		const n = engine.attend(path, hits);
+		this.status.setText(n ? this.t("status.attend", { n }) : this.t("status.attendNone"));
 	}
 
 	playFlow(opts: { to?: string } = {}): void {

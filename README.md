@@ -16,6 +16,10 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
 - **Lint**: orphan pages, pages with broken links and pages without a type get a dashed ring, with a clickable list.
 - **A neuron, not a dot**: an irregular cell body pulled toward its main dendrites, branches that narrow and fork, spines on the thin ones, an axon with a cone and terminal boutons. Each link leaves through a free dendrite pointing toward the other page and ends in a bouton; busy hubs grow extra branches; free branches stay faint. Four shapes, one per page type. "Neuron detail" in the settings: Auto (lowers detail when frames get slow), High, or Simple.
 - **Follows you**: open a note and its neuron is selected and centered. Hover a neuron for the note preview (Page Preview core plugin, with its usual modifier key).
+- **Neuron model**: a link is a synapse. It leaves through the axon of the page that holds it and lands on a dendrite of the page it points to; signals only travel that way. Each page adds up what arrives, leaks charge over time and fires all-or-nothing at a threshold (the arc around the soma shows how close it is). Ask follows outgoing links, so a page fed by several matches fires. Links used together grow stronger and fade when idle.
+  - **Inhibition**: a frontmatter link under `contradicts`, `contradiz`, `contradice`, `contredit`, `conflicts`, `refutes` or `disputes` inhibits: its spikes are red and lower the target's charge instead of raising it.
+  - **Myelin**: links between busy pages conduct faster, in jumps like the nodes of Ranvier.
+  - **Attention**: the `Attention` button in a page's panel shows, for a moment, the most similar pages it does not link to (dashed arcs, brighter = heavier weight).
 - **Search syntax**: words, `path:`, `file:`, `tag:` (nested tags too), `type:`, `heading:` and `-` to exclude, for example `path:concepts tag:ai -type:source`. Quotes keep phrases together: `path:"my folder"`.
   - `or` joins alternatives: `tag:ai or tag:ml`.
   - `links:>3`, `links:0` compare the number of links.
