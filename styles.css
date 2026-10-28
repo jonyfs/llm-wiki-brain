@@ -206,3 +206,23 @@
 	flex: 1 1 8em;
 	min-width: 0;
 }
+
+.llm-wiki-brain-stage {
+	position: relative;
+}
+.llm-wiki-brain-wizard {
+	position: absolute;
+	left: 12px;
+	top: 12px;
+	max-width: 24em;
+	padding: 10px 14px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+}
+.llm-wiki-brain-wizard p {
+	margin: 4px 0;
+	color: var(--text-muted);
+}

@@ -9,6 +9,7 @@ export interface FilterSpec {
 	createdDays: number; // created in the last N days (0 = any)
 	maxDeg: number; // at most N links (0 = no limit)
 	invert: boolean; // show what the other filters would hide
+	op: string; // only pages a log operation touched ("" = any)
 }
 
 export interface FilterPage {
@@ -23,20 +24,22 @@ export interface FilterContext {
 	degree: (path: string) => number;
 	orphans: Set<string>;
 	neighbourhood: Set<string> | null;
+	opPaths?: Set<string> | null; // pages touched by `op`, when one is chosen
 	now: number;
 }
 
-export const NO_FILTER: FilterSpec = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false };
+export const NO_FILTER: FilterSpec = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, op: "" };
 
 /** Paths to keep, or null when no filter is active (show everything). */
 export function filterPaths(pages: FilterPage[], f: FilterSpec, ctx: FilterContext): Set<string> | null {
-	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || ctx.neighbourhood)) return null;
+	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || f.op || ctx.neighbourhood)) return null;
 	const keep = new Set<string>();
 	for (const p of pages) {
 		let ok = true;
 		if (ctx.neighbourhood && !ctx.neighbourhood.has(p.path)) ok = false;
 		else if (f.folder && p.folder !== f.folder) ok = false;
 		else if (f.tag && !p.tags.includes(f.tag)) ok = false;
+		else if (f.op && !ctx.opPaths?.has(p.path)) ok = false;
 		else if (f.minDeg && ctx.degree(p.path) < f.minDeg) ok = false;
 		else if (f.maxDeg && ctx.degree(p.path) > f.maxDeg) ok = false;
 		else if (f.orphansOnly && !ctx.orphans.has(p.path)) ok = false;

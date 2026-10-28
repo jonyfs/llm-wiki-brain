@@ -42,3 +42,12 @@ test("hemispheres stay apart: a left cell never crosses the fissure", () => {
 test("fold stays within a few percent of 1", () => {
 	for (const [x, y, z] of [[0, 0, 0], [100, -50, 20], [-300, 200, 90]]) assert.ok(Math.abs(fold(x, y, z) - 1) <= 0.16);
 });
+
+test("a pinned node does not move while the others still react to it", () => {
+	const mk = (id, x) => ({ id, lobe: 0, side: 0, x, y: 0, z: 0, vx: 0, vy: 0, vz: 0 });
+	const a = { ...mk(0, 0), pinned: true }, b = mk(1, 1);
+	for (let i = 0; i < 40; i++) simStep([a, b], [], 1);
+	assert.equal(a.x, 0);
+	assert.equal(a.vx, 0);
+	assert.ok(Math.abs(b.x - 1) > 0.01);
+});

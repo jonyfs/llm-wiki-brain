@@ -20,6 +20,9 @@ export interface BrainSettings {
 	hoverPreview: boolean;
 	language: LangPref;
 	savedViews: SavedView[];
+	pinned: string[];
+	onboarded: boolean;
+	explorerHover: boolean;
 }
 
 export const DEFAULT_SETTINGS: BrainSettings = {
@@ -36,6 +39,9 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	hoverPreview: true,
 	language: "auto",
 	savedViews: [],
+	pinned: [],
+	onboarded: false,
+	explorerHover: true,
 };
 
 const FOLDER_TYPES: Record<string, PageType> = {

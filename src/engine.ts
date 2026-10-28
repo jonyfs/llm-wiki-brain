@@ -2,7 +2,7 @@
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
-import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
+import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { AXON_TIPS, assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
 import { quadPoints, somaRadii, taperStrip } from "./neuron";
@@ -33,6 +33,7 @@ export interface NodeInfo {
 	inputs: { path: string; label: string }[]; // pages that link here (dendrites)
 	outputs: { path: string; label: string }[]; // pages this one links to (axon)
 	threshold: number; // input the page needs before it fires
+	pinned: boolean;
 }
 
 export interface FlowOptions {
@@ -59,6 +60,7 @@ export interface EngineOptions {
 	onStatus: (msg: string) => void;
 	onFullscreen: () => void;
 	onSettled?: () => void; // the layout stopped moving: a good moment to save it
+	onPin?: (paths: string[]) => void; // the set of pinned pages changed
 	onReplay?: (step: { i: number; n: number; time: number; path: string } | null) => void; // a page just came back (null: the replay ended)
 	text: (key: "status.replayDone" | "status.drawFailed", vars?: Record<string, string | number>) => string;
 }
@@ -80,6 +82,7 @@ interface Cell {
 	vx: number;
 	vy: number;
 	vz: number;
+	pinned?: boolean;
 	deg: number;
 	adj: number[];
 	pulse: number;
@@ -219,11 +222,12 @@ export class BrainEngine {
 	private hidden: Partial<Record<PageType, boolean>> = {};
 	private signals: Signal[] = [];
 	private net: Net | null = null;
+	private pinnedSet = new Set<string>();
 	private mutual: boolean[] = [];
 	private leakAt = 0;
 	private packets: Packet[] = [];
 	private waves: Wave[] = [];
-	private replayState: { ids: number[]; i: number; next: number; step: number; index: number; paused: boolean; speed: number; key: "ctime" | "mtime" } | null = null;
+	private replayState: { ids: number[]; i: number; next: number; step: number; index: number; paused: boolean; speed: number; key: "ctime" | "mtime"; base: number } | null = null;
 	private matchActive = false;
 	private alpha = 1;
 	private yaw = 0.6;
@@ -360,7 +364,7 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
+				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -514,6 +518,7 @@ export class BrainEngine {
 			inputs: (this.net?.inn[id] ?? []).map((x) => this.nodes[x.from]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
 			outputs: (this.net?.out[id] ?? []).map((x) => this.nodes[x.to]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
 			threshold: Math.round((this.net?.theta[id] ?? 1) * 100) / 100,
+			pinned: !!n.pinned,
 		};
 	}
 
@@ -637,6 +642,26 @@ export class BrainEngine {
 		return { from: from.path, to: target.path, hops: segs.length, virtual: !route };
 	}
 
+	setPinned(paths: string[]): void {
+		this.pinnedSet = new Set(paths);
+		for (const n of this.nodes) n.pinned = this.pinnedSet.has(n.path);
+	}
+
+	/** Pin a page where it is (it stops moving), or release it. Returns true when it is now pinned. */
+	togglePin(path: string): boolean {
+		const n = this.byPath.get(path);
+		if (!n) return false;
+		n.pinned = !n.pinned;
+		if (n.pinned) this.pinnedSet.add(path);
+		else this.pinnedSet.delete(path);
+		n.vx = n.vy = n.vz = 0;
+		this.opts.onPin?.(Array.from(this.pinnedSet));
+		this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
+		this.alpha = Math.max(this.alpha, 0.1);
+		this.start();
+		return n.pinned;
+	}
+
 	/** Attention: `focus` reaches pages it does not link to, with weights that exist only for the moment (dashed arcs, brighter = heavier). */
 	attend(focus: string, items: { path: string; w: number }[]): number {
 		const from = this.byPath.get(focus);
@@ -681,20 +706,24 @@ export class BrainEngine {
 	}
 
 	/** Replay: the brain empties, then pages return in creation order, each fed from the index. */
-	replay(o: { key?: "ctime" | "mtime"; speed?: number } = {}): boolean {
+	replay(o: { key?: "ctime" | "mtime"; speed?: number; startAt?: number } = {}): boolean {
 		if (this.replayState) {
 			this.stopReplay();
 			return false;
 		}
 		const index = this.indexCell();
 		const key = o.key ?? "ctime";
-		const ids = index ? creationOrder(this.nodes, index.id, key) : [];
+		const all = index ? creationOrder(this.nodes, index.id, key) : [];
+		// Starting from a date: pages from before it are already there, the replay grows the rest.
+		const base = o.startAt ? countBefore(all.map((id) => this.nodes[id][key]), o.startAt) : 0;
+		const ids = all.slice(base);
 		if (!index || !ids.length) return false;
-		for (const n of this.nodes) if (n.id !== index.id) n.replayHidden = true;
+		const present = new Set(all.slice(0, base));
+		for (const n of this.nodes) if (n.id !== index.id && !present.has(n.id)) n.replayHidden = true;
 		this.packets = [];
 		this.signals = [];
 		this.replayDone = false;
-		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id, paused: false, speed: o.speed ?? 1, key };
+		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id, paused: false, speed: o.speed ?? 1, key, base };
 		this.applyVisibility();
 		return true;
 	}
@@ -713,7 +742,7 @@ export class BrainEngine {
 			else segs.push([rp.index, id, 0.3, -1]);
 			this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed() * 1.4, virtual: !route, fade: 1, done: false });
 		}
-		this.opts.onReplay?.({ i: rp.i, n: rp.ids.length, time: n[rp.key], path: n.path });
+		this.opts.onReplay?.({ i: rp.i + rp.base, n: rp.ids.length + rp.base, time: n[rp.key], path: n.path });
 	}
 
 	/** True while a flow, an ask wave or a replay is playing. The view waits for this before rebuilding the graph. */

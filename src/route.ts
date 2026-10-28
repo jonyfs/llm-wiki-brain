@@ -112,3 +112,14 @@ export function creationOrder(cells: { id: number; ctime: number; mtime?: number
 		.sort((a, b) => at(a.c) - at(b.c) || a.i - b.i)
 		.map((x) => x.c.id);
 }
+
+/** How many of the ascending `times` are before `t`. */
+export function countBefore(times: number[], t: number): number {
+	let lo = 0, hi = times.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (times[mid] < t) lo = mid + 1;
+		else hi = mid;
+	}
+	return lo;
+}

@@ -131,3 +131,28 @@ test("frontmatterProps flattens lists, lowercases keys, drops objects", () => {
 	assert.deepEqual(p, { status: "Draft", tags: "a,b", n: "3" });
 	assert.deepEqual(frontmatterProps(undefined), {});
 });
+
+import { logOps, pagesByOp } from "../.test-build/logParser.mjs";
+import { countBefore } from "../.test-build/route.mjs";
+
+test("logOps and pagesByOp: the pages an operation touched, matched by name in the entry title", () => {
+	const e = parseLog("## [2026-10-01] ingest | Added KV cache notes\n## [2026-10-02] lint | Fixed orphans\n## [2026-10-03] ingest | Attention (multi-head)\n");
+	assert.deepEqual(logOps(e), ["ingest", "lint"]);
+	const pages = [{ path: "w/kv-cache.md", label: "kv-cache" }, { path: "w/attention.md", label: "Attention" }, { path: "w/orphans.md", label: "orphans" }, { path: "w/ab.md", label: "ab" }];
+	assert.deepEqual([...pagesByOp(e, pages, "ingest")].sort(), ["w/attention.md", "w/kv-cache.md"]);
+	assert.deepEqual([...pagesByOp(e, pages, "lint")], ["w/orphans.md"]);
+	assert.equal(pagesByOp(e, pages, "nothing").size, 0);
+});
+
+test("filterPaths with op keeps only the pages that operation touched", () => {
+	const ctx2 = { ...ctx, opPaths: new Set(["a"]) };
+	assert.deepEqual([...filterPaths(pages, { ...NO_FILTER, op: "ingest" }, ctx2)], ["a"]);
+	assert.deepEqual([...filterPaths(pages, { ...NO_FILTER, op: "ingest" }, ctx)], []); // no match data: nothing touched
+});
+
+test("countBefore finds where a replay starts", () => {
+	assert.equal(countBefore([1, 3, 5, 7], 5), 2);
+	assert.equal(countBefore([1, 3, 5, 7], 0), 0);
+	assert.equal(countBefore([1, 3, 5, 7], 99), 4);
+	assert.equal(countBefore([], 5), 0);
+});

@@ -5,7 +5,7 @@ import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
 import { createDeferredRefresh } from "./refresh";
 import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
-import { logOn, parseLog, LogEntry } from "./logParser";
+import { logOn, logOps, pagesByOp, parseLog, LogEntry } from "./logParser";
 import { toWikiLinks } from "./query";
 import { attend } from "./attention";
 import { removeView, saveView } from "./views";
@@ -21,11 +21,12 @@ interface Filters {
 	createdDays: number;
 	maxDeg: number;
 	invert: boolean;
+	op: string;
 	depth: number;
 	hidden: PageType[];
 }
 
-const DEFAULT_FILTERS: Filters = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, depth: 2, hidden: [] };
+const DEFAULT_FILTERS: Filters = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, op: "", depth: 2, hidden: [] };
 
 export class BrainView extends ItemView {
 	engine: BrainEngine | null = null;
@@ -42,6 +43,8 @@ export class BrainView extends ItemView {
 	private chips = new Map<PageType, HTMLButtonElement>();
 	private folderSel!: HTMLSelectElement;
 	private tagSel!: HTMLSelectElement;
+	private opSel!: HTMLSelectElement;
+	private replayFrom = 0;
 	private rotateBtn!: HTMLButtonElement;
 	private replayBtn!: HTMLButtonElement;
 	private neighborhood: string | null = null;
@@ -130,6 +133,8 @@ export class BrainView extends ItemView {
 			this.replaySpeed = Number(speedSel.value);
 			this.engine?.setReplaySpeed(this.replaySpeed);
 		});
+		const fromIn = tools.createEl("input", { type: "date", attr: { "aria-label": this.t("replay.from"), title: this.t("replay.from") } });
+		fromIn.addEventListener("change", () => (this.replayFrom = fromIn.value ? Date.parse(fromIn.value + "T00:00:00Z") : 0));
 		const loopIn = tools.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop", "aria-label": this.t("replay.loop"), title: this.t("replay.loop") } });
 		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
 		btn(this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
@@ -182,6 +187,11 @@ export class BrainView extends ItemView {
 		this.panel = root.createDiv({ cls: "llm-wiki-brain-panel" });
 		this.folderSel = this.field(this.t("filters.folder"));
 		this.tagSel = this.field(this.t("filters.tag"));
+		this.opSel = this.field(this.t("filters.op"));
+		this.opSel.addEventListener("change", () => {
+			this.filters.op = this.opSel.value;
+			this.applyFilters();
+		});
 		const deg = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		deg.createEl("label", { text: this.t("filters.minLinks") });
 		const degIn = deg.createEl("input", { type: "range", attr: { min: "0", max: "10", step: "1", value: "0", "aria-label": this.t("filters.minLinks.aria") } });
@@ -253,6 +263,7 @@ export class BrainView extends ItemView {
 			orphIn.checked = f.orphansOnly;
 			this.folderSel.value = f.folder;
 			this.tagSel.value = f.tag;
+			this.opSel.value = f.op;
 			for (const t of TYPES) this.engine?.setHidden(t, f.hidden.includes(t));
 			this.syncChips();
 			this.applyFilters();
@@ -341,11 +352,26 @@ export class BrainView extends ItemView {
 			onFullscreen: () => this.toggleFullscreen(),
 			onSettled: () => this.plugin.saveLayout(this.engine?.layout() ?? {}),
 			onReplay: (step) => this.showReplay(step),
+			onPin: (paths) => void this.plugin.persist({ pinned: paths }),
 			text: (key, vars) => this.t(key, vars),
 		});
 		this.rotateBtn.setAttribute("aria-pressed", String(this.engine.isAuto()));
 		this.registerEvent(this.app.workspace.on("css-change", () => this.engine?.readTheme()));
+		this.engine.setPinned(s.pinned);
 		await this.refresh();
+		if (!s.onboarded) this.showWizard(stage);
+	}
+
+	/** The first time: three lines on what the picture means, once. */
+	private showWizard(host: HTMLElement): void {
+		const card = host.createDiv({ cls: "llm-wiki-brain-wizard", attr: { role: "dialog", "aria-label": this.t("wizard.title") } });
+		card.createEl("strong", { text: this.t("wizard.title") });
+		for (const k of ["wizard.1", "wizard.2", "wizard.3"] as const) card.createEl("p", { text: this.t(k) });
+		const ok = card.createEl("button", { text: this.t("wizard.ok") });
+		ok.addEventListener("click", () => {
+			card.remove();
+			void this.plugin.persist({ onboarded: true });
+		});
 	}
 
 	async onClose(): Promise<void> {
@@ -413,6 +439,7 @@ export class BrainView extends ItemView {
 		fill(this.folderSel, this.t("filters.allFolders"), Array.from(folders).sort(), this.filters.folder);
 		const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => t);
 		fill(this.tagSel, this.t("filters.allTags"), tags, this.filters.tag);
+		fill(this.opSel, this.t("filters.anyOp"), logOps(this.logEntries), this.filters.op);
 	}
 
 	private syncChips(): void {
@@ -443,13 +470,14 @@ export class BrainView extends ItemView {
 			filterPaths(pages, this.filters, {
 				degree: (path) => engine.degree(path),
 				orphans: new Set(g.orphans),
+				opPaths: this.filters.op ? pagesByOp(this.logEntries, g.pages, this.filters.op) : null,
 				neighbourhood: this.neighborhood ? neighbourhoodOf(g.links, this.neighborhood, this.filters.depth) : null,
 				now: Date.now(),
 			}),
 		);
 		this.updateStatus();
 		const f = this.filters;
-		const active = [f.folder, f.tag, f.minDeg, f.maxDeg, f.orphansOnly, f.days, f.createdDays, f.invert, this.neighborhood, f.hidden.length].filter(Boolean).length;
+		const active = [f.folder, f.tag, f.minDeg, f.maxDeg, f.orphansOnly, f.days, f.createdDays, f.invert, f.op, this.neighborhood, f.hidden.length].filter(Boolean).length;
 		this.filterBtn?.setText(active ? this.t("filters.buttonActive", { n: active }) : this.t("filters.button"));
 	}
 
@@ -552,6 +580,7 @@ export class BrainView extends ItemView {
 			}
 		};
 		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.neuron", { inn: info.inputs.length, out: info.outputs.length, theta: info.threshold }) });
+		act(info.pinned ? this.t("info.unpin") : this.t("info.pin"), () => this.engine?.togglePin(info.path));
 		act(this.t("info.attend"), () => this.attend(info.path));
 		side(this.t("info.inputs"), info.inputs);
 		side(this.t("info.outputs"), info.outputs);
@@ -588,7 +617,7 @@ export class BrainView extends ItemView {
 
 	private toggleReplay(): void {
 		if (!this.engine) return;
-		const running = this.engine.replay({ key: this.replayKey, speed: this.replaySpeed });
+		const running = this.engine.replay({ key: this.replayKey, speed: this.replaySpeed, startAt: this.replayFrom || undefined });
 		this.pauseBtn.setText(this.t("replay.pause"));
 		this.replayBtn.setText(running ? this.t("btn.stop") : this.t("btn.replay"));
 		if (running) {

@@ -35,6 +35,7 @@ export interface PhysNode {
 	vx: number;
 	vy: number;
 	vz: number;
+	pinned?: boolean; // held in place by the user: it still pushes and pulls the others
 }
 
 export type LinkPair = readonly [number, number, ...unknown[]];
@@ -80,6 +81,10 @@ export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: nu
 		if (q > lim) {
 			const pull = (q - lim) * 0.12;
 			a.vx += (L.c[0] - a.x) * pull; a.vy += (L.c[1] - a.y) * pull; a.vz += (L.c[2] - a.z) * pull;
+		}
+		if (a.pinned) {
+			a.vx = a.vy = a.vz = 0;
+			continue;
 		}
 		a.vx *= 0.84; a.vy *= 0.84; a.vz *= 0.84;
 		a.x += a.vx; a.y += a.vy; a.z += a.vz;

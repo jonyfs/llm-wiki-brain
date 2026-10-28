@@ -82,6 +82,16 @@ export default class BrainPlugin extends Plugin {
 			this.registerEvent(this.app.workspace.on("file-open", (f) => {
 				if (f) this.views().forEach((v) => v.followFile(f.path));
 			}));
+			// Hovering a file in the explorer lights its neuron in the brain.
+			let lastHover = "";
+			this.registerDomEvent(document, "mouseover", (ev) => {
+				if (!this.settings.explorerHover) return;
+				const el = (ev.target as HTMLElement | null)?.closest?.(".nav-file-title[data-path]");
+				const path = el?.getAttribute("data-path") ?? "";
+				if (!path || path === lastHover) return;
+				lastHover = path;
+				this.views().forEach((v) => v.engine?.highlight([path], 2000));
+			});
 			this.registerEvent(this.app.vault.on("delete", resync));
 			this.registerEvent(this.app.vault.on("rename", resync));
 		});
@@ -106,8 +116,15 @@ export default class BrainPlugin extends Plugin {
 		const { layout, ...rest } = ((await this.loadData()) ?? {}) as Partial<BrainSettings> & { layout?: Layout };
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, rest);
 		this.settings.savedViews = cleanViews(this.settings.savedViews);
+		this.settings.pinned = Array.isArray(this.settings.pinned) ? this.settings.pinned.filter((p) => typeof p === "string") : [];
 		this.layout = pruneLayout(layout ?? {}, null);
 		this.refreshLang();
+	}
+
+	/** Small state (pins, the first-use card) saved without rebuilding the graph. */
+	async persist(patch: Partial<BrainSettings>): Promise<void> {
+		Object.assign(this.settings, patch);
+		await this.saveData({ ...this.settings, layout: this.layout });
 	}
 
 	/** Saved views change often and need no rebuild of the graph. */
@@ -259,6 +276,15 @@ class BrainSettingTab extends PluginSettingTab {
 				t.setValue(this.plugin.settings.hoverPreview).onChange(async (v) => {
 					this.plugin.settings.hoverPreview = v;
 					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName(t("set.explorer.name"))
+			.setDesc(t("set.explorer.desc"))
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.explorerHover).onChange(async (v) => {
+					this.plugin.settings.explorerHover = v;
+					await this.plugin.persist({ explorerHover: v });
 				}),
 			);
 		new Setting(containerEl)

@@ -80,3 +80,21 @@ export function logOn(entries: LogEntry[], ts: number): LogEntry[] {
 	const day = Math.floor(ts / DAY);
 	return entries.filter((e) => Math.floor(e.date / DAY) === day);
 }
+
+/** The distinct operations in the log (ingest, query, lint...), alphabetical. */
+export function logOps(entries: LogEntry[]): string[] {
+	return Array.from(new Set(entries.map((e) => e.op).filter(Boolean))).sort();
+}
+
+const flat = (t: string) => t.toLowerCase().replace(/\.md$/, "").replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** Pages an operation touched: a page counts when its name (3+ letters) appears in the title of a log entry with that op. */
+export function pagesByOp(entries: LogEntry[], pages: { path: string; label: string }[], op: string): Set<string> {
+	const titles = entries.filter((e) => e.op === op).map((e) => flat(e.title));
+	const out = new Set<string>();
+	for (const p of pages) {
+		const name = flat(p.label);
+		if (name.length >= 3 && titles.some((t) => t.includes(name))) out.add(p.path);
+	}
+	return out;
+}
