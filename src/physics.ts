@@ -18,7 +18,10 @@ export const LOBES: Lobe[] = [
 	{ c: [0, 158, -40], r: [26, 62, 26], w: 0.35, side: 0 },
 ];
 export const LOBE_SUM = LOBES.reduce((s, l) => s + l.w, 0);
-export const FILL = 0.72; // target rms radius of the nodes of a lobe, as a fraction of its radius
+export const REACH = 0.9; // radius, as a fraction of the lobe, the outermost node aims for
+export const CORE = 0.3; // the innermost node still sits this far out: no dead-centre clump, and the cortex (the outer part) gets its share
+export const SPREAD = 0.4; // per-axis spread (std, in lobe units) an even fill of the lobe would show
+export const WALL = 0.95; // no node ends a step beyond this (times the fold of the cortex)
 export const GAP = 7; // half-width of the longitudinal fissure between hemispheres
 
 // Gyri and sulci: the outline of each lobe wobbles a little, so the shell reads as folded cortex.
@@ -75,22 +78,57 @@ export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: nu
 		a.vx += f * dx; a.vy += f * dy; a.vz += f * dz;
 		b.vx -= f * dx; b.vy -= f * dy; b.vz -= f * dz;
 	}
-	// How far out each lobe's nodes sit on average (1 = the shell). Uniform fill of a ball gives about 0.77.
-	const sum = new Float64Array(LOBES.length), cnt = new Float64Array(LOBES.length);
-	for (const a of nodes) {
+	// Radial quota: in each lobe the nodes are ranked by how far out they are, and the rank sets a target radius that
+	// spreads them evenly through the volume (a share `u` of the nodes lies within radius cbrt(u), lifted off the very centre by CORE). Order is kept, so
+	// neighbours stay neighbours; only the use of depth changes. The deepest target is REACH, safely under the shell.
+	const qs = new Float64Array(nodes.length), target = new Float64Array(nodes.length), ranks: number[][] = LOBES.map(() => []);
+	nodes.forEach((a, i) => {
 		const L = LOBES[a.lobe], ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
-		sum[a.lobe] += ex * ex + ey * ey + ez * ez;
-		cnt[a.lobe]++;
-	}
-	const rms = LOBES.map((_, i) => (cnt[i] ? Math.sqrt(sum[i] / cnt[i]) : 1));
+		qs[i] = Math.sqrt(ex * ex + ey * ey + ez * ez);
+		ranks[a.lobe].push(i);
+	});
+	// Direction quota: the nodes of a lobe must also cover it side to side. Per axis, the group's spread should reach what an even fill
+	// would give; if it does not (they are bunched to one side, or flattened), the group opens up around its own centroid and the
+	// centroid drifts back to the middle of the lobe.
+	const n3 = LOBES.map(() => 0), mean = LOBES.map(() => [0, 0, 0]), spread = LOBES.map(() => [1, 1, 1]);
 	for (const a of nodes) {
 		const L = LOBES[a.lobe];
-		const ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
-		const q = Math.sqrt(ex * ex + ey * ey + ez * ez), lim = 0.97 * fold(a.x, a.y, a.z);
-		const r = rms[a.lobe];
-		if (r < FILL && !a.pinned) { // the lobe is under-used: every node in it drifts outward until the group spans the volume
-			const out = (FILL - r) * 0.06;
-			a.vx += (a.x - L.c[0]) * out; a.vy += (a.y - L.c[1]) * out; a.vz += (a.z - L.c[2]) * out;
+		n3[a.lobe]++;
+		for (let k = 0; k < 3; k++) mean[a.lobe][k] += ((k === 0 ? a.x : k === 1 ? a.y : a.z) - L.c[k]) / L.r[k];
+	}
+	for (let l = 0; l < LOBES.length; l++) if (n3[l]) for (let k = 0; k < 3; k++) mean[l][k] /= n3[l];
+	const sd = LOBES.map(() => [0, 0, 0]);
+	for (const a of nodes) {
+		const L = LOBES[a.lobe];
+		for (let k = 0; k < 3; k++) {
+			const d = ((k === 0 ? a.x : k === 1 ? a.y : a.z) - L.c[k]) / L.r[k] - mean[a.lobe][k];
+			sd[a.lobe][k] += d * d;
+		}
+	}
+	for (let l = 0; l < LOBES.length; l++) if (n3[l] > 1) for (let k = 0; k < 3; k++) spread[l][k] = Math.sqrt(sd[l][k] / n3[l]);
+	for (const list of ranks) {
+		list.sort((i, j) => qs[i] - qs[j]);
+		list.forEach((i, j) => (target[i] = REACH * (CORE + (1 - CORE) * Math.cbrt((j + 0.5) / list.length))));
+	}
+	nodes.forEach((a, i) => {
+		const L = LOBES[a.lobe], q = qs[i], lim = 0.97 * fold(a.x, a.y, a.z);
+		if (!a.pinned && n3[a.lobe] > 1) {
+			const m = mean[a.lobe], sp = spread[a.lobe], pos = [a.x, a.y, a.z], v = [0, 0, 0];
+			for (let k = 0; k < 3; k++) {
+				const rel = (pos[k] - L.c[k]) / L.r[k] - m[k]; // where this node sits relative to its group
+				if (sp[k] < SPREAD) v[k] += rel * (SPREAD - sp[k]) * 0.12 * L.r[k];
+				v[k] -= m[k] * 0.02 * L.r[k]; // the group's centroid eases back to the middle of the lobe
+			}
+			a.vx += v[0]; a.vy += v[1]; a.vz += v[2];
+		}
+		if (!a.pinned) {
+			const dq = target[i] - q;
+			if (q > 0.02) {
+				const k = (dq / q) * 0.07;
+				a.vx += (a.x - L.c[0]) * k; a.vy += (a.y - L.c[1]) * k; a.vz += (a.z - L.c[2]) * k;
+			} else { // dead centre: any direction will do
+				a.vx += (Math.random() - 0.5) * 2; a.vy += (Math.random() - 0.5) * 2; a.vz += (Math.random() - 0.5) * 2;
+			}
 		}
 		if (q > lim) {
 			const pull = (q - lim) * 0.12;
@@ -98,10 +136,17 @@ export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: nu
 		}
 		if (a.pinned) {
 			a.vx = a.vy = a.vz = 0;
-			continue;
+			return;
 		}
 		a.vx *= 0.84; a.vy *= 0.84; a.vz *= 0.84;
 		a.x += a.vx; a.y += a.vy; a.z += a.vz;
+		// Hard wall: a node never ends a step outside the shell, whatever the springs did.
+		const wx = (a.x - L.c[0]) / L.r[0], wy = (a.y - L.c[1]) / L.r[1], wz = (a.z - L.c[2]) / L.r[2], wq = Math.sqrt(wx * wx + wy * wy + wz * wz), wall = WALL * fold(a.x, a.y, a.z);
+		if (wq > wall) {
+			const sc = wall / wq;
+			a.x = L.c[0] + (a.x - L.c[0]) * sc; a.y = L.c[1] + (a.y - L.c[1]) * sc; a.z = L.c[2] + (a.z - L.c[2]) * sc;
+			a.vx *= 0.5; a.vy *= 0.5; a.vz *= 0.5;
+		}
 		if (a.side && a.x * a.side < GAP) a.x = a.side * GAP; // keep the hemispheres apart
-	}
+	});
 }

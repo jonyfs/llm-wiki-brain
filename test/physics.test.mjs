@@ -52,7 +52,7 @@ test("a pinned node does not move while the others still react to it", () => {
 	assert.ok(Math.abs(b.x - 1) > 0.01);
 });
 
-import { FILL } from "../.test-build/physics.mjs";
+import { CORE, REACH, WALL } from "../.test-build/physics.mjs";
 
 function settle(n, links, steps = 500) {
 	const nodes = Array.from({ length: n }, (_, i) => ({ id: i, lobe: 0, side: -1, x: -92 + (i % 3) * 3, y: -18 + (i % 2) * 3, z: (i % 4) * 2, vx: 0, vy: 0, vz: 0 })); // all bunched at the centre
@@ -65,14 +65,40 @@ function settle(n, links, steps = 500) {
 test("a handful of nodes bunched at the centre spread out to use the lobe", () => {
 	for (const n of [3, 6, 12]) {
 		const r = settle(n, []);
-		assert.ok(r.rms > FILL - 0.12, n + " nodes: rms " + r.rms.toFixed(2));
-		assert.ok(r.max < 1.15, n + " nodes: max " + r.max.toFixed(2));
+		assert.ok(r.rms > 0.5, n + " nodes: rms " + r.rms.toFixed(2));
+		assert.ok(r.max <= WALL * 1.06, n + " nodes: max " + r.max.toFixed(2)); // fold wobbles the wall by about 5%
 	}
 });
 
 test("linked nodes spread too, without leaving the shell", () => {
 	const links = Array.from({ length: 7 }, (_, i) => [i, i + 1]);
 	const r = settle(8, links);
-	assert.ok(r.rms > FILL - 0.15, "rms " + r.rms.toFixed(2));
-	assert.ok(r.max < 1.15, "max " + r.max.toFixed(2));
+	assert.ok(r.rms > 0.45, "rms " + r.rms.toFixed(2));
+	assert.ok(r.max <= WALL * 1.06, "max " + r.max.toFixed(2));
+});
+
+test("a hub pulling 60 leaves never drags anyone out of the brain", () => {
+	const links = Array.from({ length: 60 }, (_, i) => [0, i + 1]);
+	const r = settle(61, links, 400);
+	assert.ok(r.max <= WALL * 1.06, "max " + r.max.toFixed(2));
+});
+
+test("the radial quota spreads nodes through the volume: the median sits near the uniform-ball value", () => {
+	const nodes = Array.from({ length: 60 }, (_, i) => ({ id: i, lobe: 0, side: -1, x: -92 + (i % 5), y: -18 + (i % 3), z: i % 7, vx: 0, vy: 0, vz: 0 }));
+	for (let s = 0; s < 600; s++) simStep(nodes, [], 0.5);
+	const L = LOBES[0], q = nodes.map((a) => Math.hypot((a.x - L.c[0]) / L.r[0], (a.y - L.c[1]) / L.r[1], (a.z - L.c[2]) / L.r[2])).sort((a, b) => a - b);
+	const median = q[30], uniform = REACH * (CORE + (1 - CORE) * Math.cbrt(0.5));
+	assert.ok(Math.abs(median - uniform) < 0.15, "median " + median.toFixed(2) + " vs " + uniform.toFixed(2));
+	assert.ok(q[0] < 0.5 && q[59] > 0.75, "spans " + q[0].toFixed(2) + ".." + q[59].toFixed(2));
+});
+
+test("nodes bunched to one side of a lobe cover it side to side afterwards", () => {
+	const nodes = Array.from({ length: 24 }, (_, i) => ({ id: i, lobe: 1, side: 1, x: 92 + 60 + (i % 4) * 2, y: -18 + (i % 3), z: (i % 5), vx: 0, vy: 0, vz: 0 }));
+	for (let s = 0; s < 800; s++) simStep(nodes, [], 0.5);
+	const L = LOBES[1], ex = nodes.map((a) => (a.x - L.c[0]) / L.r[0]), ey = nodes.map((a) => (a.y - L.c[1]) / L.r[1]), ez = nodes.map((a) => (a.z - L.c[2]) / L.r[2]);
+	const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length, std = (v) => Math.sqrt(mean(v.map((x) => (x - mean(v)) ** 2)));
+	for (const v of [ex, ey, ez]) {
+		assert.ok(Math.abs(mean(v)) < 0.2, "centroid " + mean(v).toFixed(2));
+		assert.ok(std(v) > 0.3, "spread " + std(v).toFixed(2));
+	}
 });
