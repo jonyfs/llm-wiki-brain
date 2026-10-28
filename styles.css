@@ -179,3 +179,15 @@
 		transition: none;
 	}
 }
+
+.llm-wiki-brain-replaybar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 8px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.llm-wiki-brain-tools select {
+	max-width: 7.5em;
+}

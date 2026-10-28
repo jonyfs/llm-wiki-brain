@@ -1,7 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
 import { creationTimes } from "./logParser";
-import { matchesQuery, parseQuery } from "./query";
+import { fuzzyScore, matchesQuery, parseQuery } from "./query";
 import type { LangPref } from "./i18n";
 
 export interface BrainSettings {
@@ -72,6 +72,8 @@ export interface PageMeta {
 	folder: string;
 	tags: string[];
 	text: string; // lower-case name, path, headings and tags for search
+	headings: string; // lower-case headings
+	props: Record<string, string>; // frontmatter, lower-cased keys
 }
 
 export interface VaultGraph {
@@ -127,6 +129,8 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 			folder: rel.includes("/") ? rel.split("/")[0] : "",
 			tags: Array.from(new Set(tags)),
 			text: [f.path, ...(cache?.headings ?? []).map((h) => h.heading), ...tags].join(" ").toLowerCase(),
+			headings: (cache?.headings ?? []).map((h) => h.heading).join(" ").toLowerCase(),
+			props: frontmatterProps(cache?.frontmatter),
 		});
 		const base = f.basename.toLowerCase();
 		return { path: f.path, label: f.basename, type: pageType(app, f), ctime: f.stat.ctime, mtime: f.stat.mtime, isIndex: base === "index", isLog: base === "log" };
@@ -145,13 +149,50 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	};
 }
 
-/** Pages that satisfy the search box: words, path:, file:, tag:, type: and -negation. */
-export function matchQuery(graph: VaultGraph, query: string): Set<string> {
+/** Frontmatter as lower-cased keys and flat strings (lists joined by commas), so `prop:status=draft` works. */
+export function frontmatterProps(fm: Record<string, unknown> | undefined): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!fm) return out;
+	for (const [k, v] of Object.entries(fm)) {
+		if (k === "position" || v == null || typeof v === "object" && !Array.isArray(v)) continue;
+		out[k.toLowerCase()] = Array.isArray(v) ? v.map(String).join(",") : String(v);
+	}
+	return out;
+}
+
+function linkCounts(graph: VaultGraph): Map<string, number> {
+	const deg = new Map<string, number>();
+	for (const [a, b] of graph.links) {
+		deg.set(a, (deg.get(a) ?? 0) + 1);
+		deg.set(b, (deg.get(b) ?? 0) + 1);
+	}
+	return deg;
+}
+
+/** The pages that satisfy the search box (see query.ts for the syntax). */
+export function matchQuery(graph: VaultGraph, query: string, now = Date.now()): Set<string> {
 	const terms = parseQuery(query);
+	const deg = linkCounts(graph);
+	const flag = (list: string[]) => new Set(list);
+	const orphan = flag(graph.orphans), broken = flag(graph.broken), untyped = flag(graph.untyped);
 	const out = new Set<string>();
 	for (const p of graph.pages) {
 		const m = graph.meta.get(p.path);
-		if (m && matchesQuery(terms, { path: p.path, label: p.label, tags: m.tags, type: p.type, text: m.text })) out.add(p.path);
+		if (!m) continue;
+		const flags: string[] = [];
+		if (orphan.has(p.path)) flags.push("orphan");
+		if (broken.has(p.path)) flags.push("broken");
+		if (untyped.has(p.path)) flags.push("untyped");
+		if (p.isIndex) flags.push("index");
+		if (p.isLog) flags.push("log");
+		if ((deg.get(p.path) ?? 0) >= 8) flags.push("hub");
+		const page = { path: p.path, label: p.label, tags: m.tags, type: p.type, text: m.text, headings: m.headings, degree: deg.get(p.path) ?? 0, ctime: p.ctime, mtime: p.mtime, props: m.props, flags };
+		if (matchesQuery(terms, page, now)) out.add(p.path);
+	}
+	// Nothing matched: fall back to fuzzy file names for a plain one-word query ("kvcch" finds "kv-cache").
+	if (!out.size && terms.length === 1 && terms[0].length === 1 && terms[0][0].key === "" && !terms[0][0].not && terms[0][0].value.length >= 3) {
+		const needle = terms[0][0].value;
+		for (const p of graph.pages) if (fuzzyScore(needle, p.label) >= 0.5) out.add(p.path);
 	}
 	return out;
 }

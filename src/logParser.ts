@@ -74,3 +74,9 @@ export function creationTimes(pages: TimedPage[], logText: string | null | undef
 	}
 	return out;
 }
+
+/** The log entries written on the same day as `ts` (UTC), in file order. */
+export function logOn(entries: LogEntry[], ts: number): LogEntry[] {
+	const day = Math.floor(ts / DAY);
+	return entries.filter((e) => Math.floor(e.date / DAY) === day);
+}

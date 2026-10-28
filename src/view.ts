@@ -5,6 +5,8 @@ import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
 import { createDeferredRefresh } from "./refresh";
 import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
+import { logOn, parseLog, LogEntry } from "./logParser";
+import { toWikiLinks } from "./query";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
 
@@ -14,10 +16,14 @@ interface Filters {
 	minDeg: number;
 	orphansOnly: boolean;
 	days: number;
+	createdDays: number;
+	maxDeg: number;
+	invert: boolean;
+	depth: number;
 	hidden: PageType[];
 }
 
-const DEFAULT_FILTERS: Filters = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, hidden: [] };
+const DEFAULT_FILTERS: Filters = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, depth: 2, hidden: [] };
 
 export class BrainView extends ItemView {
 	engine: BrainEngine | null = null;
@@ -37,6 +43,17 @@ export class BrainView extends ItemView {
 	private rotateBtn!: HTMLButtonElement;
 	private replayBtn!: HTMLButtonElement;
 	private neighborhood: string | null = null;
+	private filterBtn!: HTMLButtonElement;
+	private hits: string[] = [];
+	private hitAt = -1;
+	private history: string[] = [];
+	private historyList!: HTMLDataListElement;
+	private replayBar!: HTMLElement;
+	private replayCaption!: HTMLElement;
+	private pauseBtn!: HTMLButtonElement;
+	private replayKey: "ctime" | "mtime" = "ctime";
+	private replaySpeed = 1;
+	private logEntries: LogEntry[] = [];
 	private afterRefresh: (() => void)[] = [];
 	private deferred = createDeferredRefresh({
 		isBusy: () => this.engine?.isBusy() ?? false,
@@ -99,6 +116,17 @@ export class BrainView extends ItemView {
 		};
 		btn(this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
 		this.replayBtn = btn(this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
+		const modeSel = tools.createEl("select", { attr: { "aria-label": this.t("replay.mode.aria") } });
+		modeSel.createEl("option", { value: "ctime", text: this.t("replay.mode.created") });
+		modeSel.createEl("option", { value: "mtime", text: this.t("replay.mode.edited") });
+		modeSel.addEventListener("change", () => (this.replayKey = modeSel.value as "ctime" | "mtime"));
+		const speedSel = tools.createEl("select", { attr: { "aria-label": this.t("replay.speed.aria") } });
+		for (const v of ["0.5", "1", "2", "4"]) speedSel.createEl("option", { value: v, text: v + "×" });
+		speedSel.value = "1";
+		speedSel.addEventListener("change", () => {
+			this.replaySpeed = Number(speedSel.value);
+			this.engine?.setReplaySpeed(this.replaySpeed);
+		});
 		btn(this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
 		this.rotateBtn = btn(this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
 			const on = !this.engine?.isAuto();
@@ -108,21 +136,38 @@ export class BrainView extends ItemView {
 		btn(this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
 		btn(this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
 
+		this.replayBar = root.createDiv({ cls: "llm-wiki-brain-replaybar" });
+		this.pauseBtn = this.replayBar.createEl("button", { text: this.t("replay.pause") });
+		this.pauseBtn.addEventListener("click", () => this.pauseReplay());
+		this.replayCaption = this.replayBar.createSpan({ cls: "llm-wiki-brain-replaycap", attr: { "aria-live": "polite" } });
+		this.replayBar.hide();
+
 		const searchRow = root.createDiv({ cls: "llm-wiki-brain-search" });
-		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: this.t("search.placeholder"), "aria-label": this.t("search.aria") } });
+		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: this.t("search.placeholder"), "aria-label": this.t("search.aria"), list: "llm-wiki-brain-history" } });
+		this.historyList = searchRow.createEl("datalist", { attr: { id: "llm-wiki-brain-history" } });
 		let timer = 0;
 		this.search.addEventListener("input", () => {
 			window.clearTimeout(timer);
 			timer = window.setTimeout(() => this.applySearch(false), 160);
 		});
 		this.search.addEventListener("keydown", (e) => {
-			if (e.key === "Enter") this.applySearch(true);
+			if (e.key === "Enter" && e.shiftKey) this.stepHit(-1);
+			else if (e.key === "Enter" && this.hits.length && this.hitAt >= 0) this.stepHit(1);
+			else if (e.key === "Enter") this.applySearch(true);
 			if (e.key === "Escape") {
 				this.search.value = "";
 				this.applySearch(false);
 			}
 		});
-		const filterBtn = searchRow.createEl("button", { text: this.t("filters.button"), attr: { "aria-expanded": "false" } });
+		const small = (label: string, aria: string, fn: () => void) => {
+			const b = searchRow.createEl("button", { text: label, attr: { "aria-label": aria, title: aria } });
+			b.addEventListener("click", fn);
+			return b;
+		};
+		small("‹", this.t("search.prev.aria"), () => this.stepHit(-1));
+		small("›", this.t("search.next.aria"), () => this.stepHit(1));
+		small(this.t("search.copy"), this.t("search.copy.title"), () => this.copyHits());
+		const filterBtn = (this.filterBtn = searchRow.createEl("button", { text: this.t("filters.button"), attr: { "aria-expanded": "false" } }));
 		filterBtn.addEventListener("click", () => {
 			const open = this.panel.hasClass("is-open");
 			this.panel.toggleClass("is-open", !open);
@@ -149,6 +194,39 @@ export class BrainView extends ItemView {
 			this.filters.days = Number(daysSel.value);
 			this.applyFilters();
 		});
+		const created = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
+		created.createEl("label", { text: this.t("filters.created") });
+		const createdSel = created.createEl("select");
+		for (const [v, l] of [["0", this.t("filters.anyTime")], ["7", this.t("filters.days7")], ["30", this.t("filters.days30")], ["365", this.t("filters.year")]]) createdSel.createEl("option", { value: v, text: l });
+		createdSel.addEventListener("change", () => {
+			this.filters.createdDays = Number(createdSel.value);
+			this.applyFilters();
+		});
+		const max = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
+		max.createEl("label", { text: this.t("filters.maxLinks") });
+		const maxIn = max.createEl("input", { type: "range", attr: { min: "0", max: "20", step: "1", value: "0", "aria-label": this.t("filters.maxLinks.aria") } });
+		const maxOut = max.createSpan({ text: "∞" });
+		maxIn.addEventListener("input", () => {
+			maxOut.setText(maxIn.value === "0" ? "∞" : maxIn.value);
+			this.filters.maxDeg = Number(maxIn.value);
+			this.applyFilters();
+		});
+		const depth = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
+		depth.createEl("label", { text: this.t("filters.depth") });
+		const depthSel = depth.createEl("select");
+		for (const v of ["1", "2", "3"]) depthSel.createEl("option", { value: v, text: v });
+		depthSel.value = String(this.filters.depth);
+		depthSel.addEventListener("change", () => {
+			this.filters.depth = Number(depthSel.value);
+			this.applyFilters();
+		});
+		const inv = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
+		const invIn = inv.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-invert" } });
+		inv.createEl("label", { text: this.t("filters.invert"), attr: { for: "llm-wiki-brain-invert" } });
+		invIn.addEventListener("change", () => {
+			this.filters.invert = invIn.checked;
+			this.applyFilters();
+		});
 		const orph = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		const orphIn = orph.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-orphans" } });
 		orph.createEl("label", { text: this.t("filters.orphansOnly"), attr: { for: "llm-wiki-brain-orphans" } });
@@ -163,6 +241,11 @@ export class BrainView extends ItemView {
 			degIn.value = "0";
 			degOut.setText("0");
 			daysSel.value = "0";
+			createdSel.value = "0";
+			maxIn.value = "0";
+			maxOut.setText("∞");
+			depthSel.value = "2";
+			invIn.checked = false;
 			orphIn.checked = false;
 			this.folderSel.value = "";
 			this.tagSel.value = "";
@@ -211,6 +294,7 @@ export class BrainView extends ItemView {
 			onStatus: (msg) => this.status.setText(msg),
 			onFullscreen: () => this.toggleFullscreen(),
 			onSettled: () => this.plugin.saveLayout(this.engine?.layout() ?? {}),
+			onReplay: (step) => this.showReplay(step),
 			text: (key, vars) => this.t(key, vars),
 		});
 		this.rotateBtn.setAttribute("aria-pressed", String(this.engine.isAuto()));
@@ -255,6 +339,7 @@ export class BrainView extends ItemView {
 		if (!this.engine) return;
 		const log = await this.plugin.readLog();
 		if (!this.engine) return;
+		this.logEntries = parseLog(log ?? "");
 		this.graph = buildVaultGraph(this.app, this.plugin.settings, log);
 		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout);
 		for (const t of this.filters.hidden) this.engine.setHidden(t, true);
@@ -301,22 +386,25 @@ export class BrainView extends ItemView {
 		this.filters.hidden = off ? [...this.filters.hidden, t] : this.filters.hidden.filter((x) => x !== t);
 		this.chips.get(t)?.setAttribute("aria-pressed", String(!off));
 		this.engine?.setHidden(t, off);
-		this.updateStatus();
+		this.applyFilters();
 	}
 
 	private applyFilters(): void {
 		if (!this.engine || !this.graph) return;
 		const g = this.graph, engine = this.engine;
-		const pages: FilterPage[] = g.pages.map((p) => ({ path: p.path, mtime: p.mtime, folder: g.meta.get(p.path)?.folder ?? "", tags: g.meta.get(p.path)?.tags ?? [] }));
+		const pages: FilterPage[] = g.pages.map((p) => ({ path: p.path, mtime: p.mtime, ctime: p.ctime, folder: g.meta.get(p.path)?.folder ?? "", tags: g.meta.get(p.path)?.tags ?? [] }));
 		engine.setFilter(
 			filterPaths(pages, this.filters, {
 				degree: (path) => engine.degree(path),
 				orphans: new Set(g.orphans),
-				neighbourhood: this.neighborhood ? neighbourhoodOf(g.links, this.neighborhood, 2) : null,
+				neighbourhood: this.neighborhood ? neighbourhoodOf(g.links, this.neighborhood, this.filters.depth) : null,
 				now: Date.now(),
 			}),
 		);
 		this.updateStatus();
+		const f = this.filters;
+		const active = [f.folder, f.tag, f.minDeg, f.maxDeg, f.orphansOnly, f.days, f.createdDays, f.invert, this.neighborhood, f.hidden.length].filter(Boolean).length;
+		this.filterBtn?.setText(active ? this.t("filters.buttonActive", { n: active }) : this.t("filters.button"));
 	}
 
 	private applySearch(ask: boolean): void {
@@ -324,14 +412,57 @@ export class BrainView extends ItemView {
 		const q = this.search.value.trim();
 		if (!q) {
 			this.engine.setMatch(null);
+			this.hits = [];
+			this.hitAt = -1;
 			return;
 		}
 		const hits = matchQuery(this.graph, q);
 		this.engine.setMatch(hits);
+		this.hits = Array.from(hits).sort();
+		this.hitAt = -1;
+		if (ask) this.remember(q);
 		if (ask) {
 			const n = this.engine.ask(Array.from(hits));
 			this.status.setText(n ? this.t("status.ask", { n }) : this.t("status.noMatch"));
 		} else this.status.setText(this.t("status.matches", { n: hits.size }));
+	}
+
+	/** Recent searches, newest first, offered by the search box. */
+	private remember(q: string): void {
+		this.history = [q, ...this.history.filter((x) => x !== q)].slice(0, 12);
+		this.historyList.empty();
+		for (const h of this.history) this.historyList.createEl("option", { value: h });
+	}
+
+	/** Walk through the matches one by one: the camera goes to each. */
+	private stepHit(dir: number): void {
+		if (!this.engine || !this.hits.length) return;
+		this.hitAt = (this.hitAt + dir + this.hits.length) % this.hits.length;
+		const path = this.hits[this.hitAt];
+		this.engine.selectPath(path, true);
+		this.status.setText(this.t("status.matchAt", { i: this.hitAt + 1, n: this.hits.length, name: path.split("/").pop()?.replace(/\.md$/, "") ?? path }));
+	}
+
+	private copyHits(): void {
+		if (!this.hits.length) return;
+		void navigator.clipboard.writeText(toWikiLinks(this.hits)).then(() => new Notice(this.t("status.copied", { n: this.hits.length })));
+	}
+
+	private pauseReplay(): void {
+		const paused = this.engine?.pauseReplay() ?? false;
+		this.pauseBtn.setText(this.t(paused ? "replay.resume" : "replay.pause"));
+	}
+
+	/** The growth caption: which day the wiki is at, how many pages are back, and what the log says happened that day. */
+	private showReplay(step: { i: number; n: number; time: number; path: string } | null): void {
+		if (!step) {
+			this.replayBar?.hide();
+			return;
+		}
+		this.replayBar.show();
+		const date = new Date(step.time).toISOString().slice(0, 10);
+		const ops = Array.from(new Set(logOn(this.logEntries, step.time).map((e) => e.op))).join(", ");
+		this.replayCaption.setText(ops ? this.t("replay.captionLog", { date, i: step.i, n: step.n, ops }) : this.t("replay.caption", { date, i: step.i, n: step.n }));
 	}
 
 	private updateStatus(): void {
@@ -386,7 +517,8 @@ export class BrainView extends ItemView {
 
 	private toggleReplay(): void {
 		if (!this.engine) return;
-		const running = this.engine.replay();
+		const running = this.engine.replay({ key: this.replayKey, speed: this.replaySpeed });
+		this.pauseBtn.setText(this.t("replay.pause"));
 		this.replayBtn.setText(running ? this.t("btn.stop") : this.t("btn.replay"));
 		if (running) {
 			const poll = window.setInterval(() => {

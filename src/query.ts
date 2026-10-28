@@ -1,4 +1,14 @@
-/* Search box syntax, like the core graph filter: path:, file:, tag:, type: and -negation. Pure, testable in Node. */
+/* Search box syntax, like the core graph filter and a bit more. Pure, testable in Node.
+
+   words                 every word must appear in the name, path, headings or tags
+   path: file: tag: type: heading:
+   links:>3  links:0     number of links (>, >=, <, <=, =)
+   created:<7d  edited:>30d  edited:>2026-01-01   age (d, w, m, y) or an absolute date
+   prop:status=draft  prop:author~ana  prop:status    a frontmatter property (equals, contains, exists)
+   is:orphan is:broken is:untyped is:index is:log is:hub
+   -term                 exclude
+   a or b                either side (each side is an AND of its terms)
+*/
 
 export interface QueryPage {
 	path: string;
@@ -6,10 +16,18 @@ export interface QueryPage {
 	tags: string[];
 	type: string;
 	text: string; // lower-case name, path, headings and tags
+	headings?: string; // lower-case headings
+	degree?: number;
+	ctime?: number;
+	mtime?: number;
+	props?: Record<string, string>; // frontmatter, lower-cased keys, values joined with ","
+	flags?: string[]; // orphan, broken, untyped, index, log, hub
 }
 
-interface Term {
-	key: "" | "path" | "file" | "tag" | "type";
+type Key = "" | "path" | "file" | "tag" | "type" | "heading" | "links" | "created" | "edited" | "prop" | "is";
+
+export interface Term {
+	key: Key;
 	value: string;
 	not: boolean;
 }
@@ -29,37 +47,121 @@ export function tokenize(q: string): string[] {
 	return out;
 }
 
-export function parseQuery(q: string): Term[] {
-	const terms: Term[] = [];
+/** Alternatives separated by `or`; each alternative is a list of terms that must all hold. */
+export function parseQuery(q: string): Term[][] {
+	const groups: Term[][] = [[]];
 	for (let t of tokenize(q.toLowerCase())) {
+		if (t === "or") {
+			if (groups[groups.length - 1].length) groups.push([]);
+			continue;
+		}
 		let not = false;
 		if (t.length > 1 && t.startsWith("-")) {
 			not = true;
 			t = t.slice(1);
 		}
-		const m = /^(path|file|tag|type):(.*)$/.exec(t);
+		const m = /^(path|file|tag|type|heading|links|created|edited|prop|is):(.*)$/.exec(t);
 		const value = m ? m[2] : t;
 		if (!value) continue; // "tag:" with nothing yet, typed halfway
-		terms.push({ key: (m ? m[1] : "") as Term["key"], value, not });
+		groups[groups.length - 1].push({ key: (m ? m[1] : "") as Key, value, not });
 	}
-	return terms;
+	return groups.filter((g) => g.length);
 }
 
-function hit(t: Term, p: QueryPage): boolean {
+const DAY = 86400000;
+const UNIT: Record<string, number> = { d: DAY, w: 7 * DAY, m: 30 * DAY, y: 365 * DAY };
+
+/** "&gt;3", ">=2", "0", "<=5": returns a test, or null when it is not a number comparison. */
+export function numberTest(v: string): ((n: number) => boolean) | null {
+	const m = /^(>=|<=|>|<|=)?(\d+(?:\.\d+)?)$/.exec(v);
+	if (!m) return null;
+	const x = Number(m[2]);
+	switch (m[1]) {
+		case ">": return (n) => n > x;
+		case ">=": return (n) => n >= x;
+		case "<": return (n) => n < x;
+		case "<=": return (n) => n <= x;
+		default: return (n) => n === x;
+	}
+}
+
+/** Age or date comparison: `<7d` is newer than a week, `>30d` older than a month, `>2026-01-01` after that day. */
+export function dateTest(v: string, now: number): ((t: number) => boolean) | null {
+	const m = /^(>=|<=|>|<|=)?(?:(\d+)([dwmy])|(\d{4})-(\d{2})-(\d{2}))$/.exec(v);
+	if (!m) return null;
+	const op = m[1] ?? (m[2] ? "<" : "="); // a bare age means "younger than", a bare date means "that day"
+	if (m[2]) {
+		const age = Number(m[2]) * UNIT[m[3]];
+		const cut = now - age; // a page is "younger than" the age when its time is after the cut
+		if (op === "<" || op === "<=") return (t) => t >= cut;
+		if (op === ">" || op === ">=") return (t) => t <= cut;
+		return (t) => Math.abs(t - cut) < DAY;
+	}
+	const day = Date.UTC(Number(m[4]), Number(m[5]) - 1, Number(m[6]));
+	if (op === ">") return (t) => t >= day + DAY;
+	if (op === ">=") return (t) => t >= day;
+	if (op === "<") return (t) => t < day;
+	if (op === "<=") return (t) => t < day + DAY;
+	return (t) => t >= day && t < day + DAY;
+}
+
+function propHit(value: string, props: Record<string, string> | undefined): boolean {
+	if (!props) return false;
+	const m = /^([^=~]+)(?:([=~])(.*))?$/.exec(value);
+	if (!m) return false;
+	const have = props[m[1].trim()];
+	if (have === undefined) return false;
+	if (!m[2]) return true; // exists
+	const want = (m[3] ?? "").toLowerCase();
+	return m[2] === "=" ? have.toLowerCase() === want : have.toLowerCase().includes(want);
+}
+
+function hit(t: Term, p: QueryPage, now: number): boolean {
 	switch (t.key) {
 		case "path": return p.path.toLowerCase().includes(t.value);
 		case "file": return p.label.toLowerCase().includes(t.value);
+		case "heading": return (p.headings ?? "").includes(t.value);
 		case "tag": {
 			const want = t.value.startsWith("#") ? t.value : "#" + t.value;
 			return p.tags.some((x) => x === want || x.startsWith(want + "/")); // nested tags: #a matches #a/b
 		}
 		case "type": return p.type === t.value;
+		case "links": {
+			const f = numberTest(t.value);
+			return !!f && f(p.degree ?? 0);
+		}
+		case "created":
+		case "edited": {
+			const f = dateTest(t.value, now), time = t.key === "created" ? p.ctime : p.mtime;
+			return !!f && time !== undefined && f(time);
+		}
+		case "prop": return propHit(t.value, p.props);
+		case "is": return (p.flags ?? []).includes(t.value);
 		default: return p.text.includes(t.value);
 	}
 }
 
-/** True when the page satisfies every term (an empty query matches nothing, so the caller can clear the highlight). */
-export function matchesQuery(terms: Term[], p: QueryPage): boolean {
-	if (!terms.length) return false;
-	return terms.every((t) => hit(t, p) !== t.not);
+/** True when the page satisfies one whole alternative (an empty query matches nothing, so the caller can clear the highlight). */
+export function matchesQuery(groups: Term[][], p: QueryPage, now = Date.now()): boolean {
+	return groups.some((terms) => terms.length > 0 && terms.every((t) => hit(t, p, now) !== t.not));
+}
+
+/** Subsequence match: 0 when `needle` is not in `hay` in order, else a score up to 1 (tighter is better). */
+export function fuzzyScore(needle: string, hay: string): number {
+	const n = needle.toLowerCase(), h = hay.toLowerCase();
+	if (!n) return 0;
+	let hi = 0, first = -1, last = -1;
+	for (const ch of n) {
+		const at = h.indexOf(ch, hi);
+		if (at < 0) return 0;
+		if (first < 0) first = at;
+		last = at;
+		hi = at + 1;
+	}
+	return n.length / (last - first + 1);
+}
+
+/** `[[name]]` lines for a list of note paths, the way you would paste them into a note. */
+export function toWikiLinks(paths: string[]): string {
+	return paths.map((p) => "[[" + p.replace(/\.md$/i, "") + "]]").join("\n");
 }

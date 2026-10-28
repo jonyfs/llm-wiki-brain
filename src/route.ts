@@ -103,11 +103,12 @@ export function assignLobes(adj: number[][], weights: number[], order: number[])
 	return out;
 }
 
-/** Pages in creation order for a replay: visible, not the index, oldest first (ties keep their original order). */
-export function creationOrder(cells: { id: number; ctime: number; isIndex: boolean; off: boolean }[], indexId: number): number[] {
+/** Pages in time order for a replay: visible, not the index, oldest first (ties keep their original order). `key` picks created or edited. */
+export function creationOrder(cells: { id: number; ctime: number; mtime?: number; isIndex: boolean; off: boolean }[], indexId: number, key: "ctime" | "mtime" = "ctime"): number[] {
+	const at = (c: { ctime: number; mtime?: number }) => (key === "mtime" ? c.mtime ?? c.ctime : c.ctime);
 	return cells
 		.filter((c) => !c.off && !c.isIndex && c.id !== indexId)
 		.map((c, i) => ({ c, i }))
-		.sort((a, b) => a.c.ctime - b.c.ctime || a.i - b.i)
+		.sort((a, b) => at(a.c) - at(b.c) || a.i - b.i)
 		.map((x) => x.c.id);
 }

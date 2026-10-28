@@ -55,6 +55,7 @@ export interface EngineOptions {
 	onStatus: (msg: string) => void;
 	onFullscreen: () => void;
 	onSettled?: () => void; // the layout stopped moving: a good moment to save it
+	onReplay?: (step: { i: number; n: number; time: number; path: string } | null) => void; // a page just came back (null: the replay ended)
 	text: (key: "status.replayDone" | "status.drawFailed", vars?: Record<string, string | number>) => string;
 }
 
@@ -211,7 +212,7 @@ export class BrainEngine {
 	private signals: Signal[] = [];
 	private packets: Packet[] = [];
 	private waves: Wave[] = [];
-	private replayState: { ids: number[]; i: number; next: number; step: number; index: number } | null = null;
+	private replayState: { ids: number[]; i: number; next: number; step: number; index: number; paused: boolean; speed: number; key: "ctime" | "mtime" } | null = null;
 	private matchActive = false;
 	private alpha = 1;
 	private yaw = 0.6;
@@ -629,20 +630,38 @@ export class BrainEngine {
 	}
 
 	/** Replay: the brain empties, then pages return in creation order, each fed from the index. */
-	replay(): boolean {
+	replay(o: { key?: "ctime" | "mtime"; speed?: number } = {}): boolean {
 		if (this.replayState) {
 			this.stopReplay();
 			return false;
 		}
 		const index = this.indexCell();
-		const ids = index ? creationOrder(this.nodes, index.id) : [];
+		const key = o.key ?? "ctime";
+		const ids = index ? creationOrder(this.nodes, index.id, key) : [];
 		if (!index || !ids.length) return false;
 		for (const n of this.nodes) if (n.id !== index.id) n.replayHidden = true;
 		this.packets = [];
 		this.signals = [];
-		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id };
+		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id, paused: false, speed: o.speed ?? 1, key };
 		this.applyVisibility();
 		return true;
+	}
+
+	private revealNext(rp: NonNullable<BrainEngine["replayState"]>, packet: boolean): void {
+		const id = rp.ids[rp.i++];
+		const n = this.nodes[id];
+		n.replayHidden = false;
+		n.off = n.typeHidden || n.filtered;
+		n.pulse = 1;
+		n.lit = this.tNow + 2000;
+		if (packet && !n.off) {
+			const route = findRoute(this.nodes.map((x) => x.adj), rp.index, id, (j) => !this.nodes[j].off, 8);
+			const segs: [number, number, number, number][] = [];
+			if (route) for (let k = 0; k + 1 < route.length; k++) segs.push([route[k], route[k + 1], this.edgeK(route[k], route[k + 1]) ?? 0.1, this.edgeOf(route[k], route[k + 1])]);
+			else segs.push([rp.index, id, 0.3, -1]);
+			this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed() * 1.4, virtual: !route, fade: 1, done: false });
+		}
+		this.opts.onReplay?.({ i: rp.i, n: rp.ids.length, time: n[rp.key], path: n.path });
 	}
 
 	/** True while a flow, an ask wave or a replay is playing. The view waits for this before rebuilding the graph. */
@@ -654,11 +673,36 @@ export class BrainEngine {
 		return this.replayState !== null;
 	}
 
+	/** Pause or resume the replay; returns true when it is now paused. */
+	pauseReplay(): boolean {
+		const rp = this.replayState;
+		if (!rp) return false;
+		rp.paused = !rp.paused;
+		if (!rp.paused) {
+			rp.next = (this.tNow || performance.now()) + 200;
+			this.start();
+		}
+		return rp.paused;
+	}
+
+	setReplaySpeed(x: number): void {
+		if (this.replayState) this.replayState.speed = clamp(x, 0.25, 8);
+	}
+
+	/** Skip ahead: bring back the next `k` pages at once, without packets. */
+	stepReplay(k = 1): void {
+		const rp = this.replayState;
+		if (!rp) return;
+		for (let j = 0; j < k && rp.i < rp.ids.length; j++) this.revealNext(rp, j === k - 1);
+		this.applyVisibility();
+	}
+
 	stopReplay(): void {
 		if (!this.replayState) return;
 		this.replayState = null;
 		for (const n of this.nodes) n.replayHidden = false;
 		this.applyVisibility();
+		this.opts.onReplay?.(null);
 	}
 
 	/** Lint: ring the flagged pages. */
@@ -1138,26 +1182,15 @@ export class BrainEngine {
 			this.waves.splice(i, 1);
 		}
 		const rp = this.replayState;
-		if (rp) {
+		if (rp && !rp.paused) {
 			busy = true;
 			if (this.tNow >= rp.next) {
-				const id = rp.ids[rp.i++];
-				const n = this.nodes[id];
-				n.replayHidden = false;
-				n.off = n.typeHidden || n.filtered;
-				n.pulse = 1;
-				n.lit = this.tNow + 2000;
-				if (!n.off) {
-					const route = findRoute(this.nodes.map((x) => x.adj), rp.index, id, (j) => !this.nodes[j].off, 8);
-					const segs: [number, number, number, number][] = [];
-					if (route) for (let k = 0; k + 1 < route.length; k++) segs.push([route[k], route[k + 1], this.edgeK(route[k], route[k + 1]) ?? 0.1, this.edgeOf(route[k], route[k + 1])]);
-					else segs.push([rp.index, id, 0.3, -1]);
-					this.packets.push({ segs, seg: 0, t: 0, v: this.packetSpeed() * 1.4, virtual: !route, fade: 1, done: false });
-				}
-				rp.next = this.tNow + rp.step;
+				this.revealNext(rp, true);
+				rp.next = this.tNow + rp.step / rp.speed;
 				if (rp.i >= rp.ids.length) {
 					this.replayState = null;
 					this.opts.onStatus(this.opts.text("status.replayDone"));
+					this.opts.onReplay?.(null);
 				}
 			}
 		}
