@@ -2,6 +2,7 @@ import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
 import { creationTimes } from "./logParser";
 import { isInhibitoryKey } from "./synapse";
+import type { SavedView } from "./views";
 import { fuzzyScore, matchesQuery, parseQuery } from "./query";
 import type { LangPref } from "./i18n";
 
@@ -18,6 +19,7 @@ export interface BrainSettings {
 	followActiveNote: boolean;
 	hoverPreview: boolean;
 	language: LangPref;
+	savedViews: SavedView[];
 }
 
 export const DEFAULT_SETTINGS: BrainSettings = {
@@ -33,6 +35,7 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	followActiveNote: true,
 	hoverPreview: true,
 	language: "auto",
+	savedViews: [],
 };
 
 const FOLDER_TYPES: Record<string, PageType> = {

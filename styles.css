@@ -197,3 +197,12 @@
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 }
+
+.llm-wiki-brain-views {
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.llm-wiki-brain-views input[type="text"] {
+	flex: 1 1 8em;
+	min-width: 0;
+}

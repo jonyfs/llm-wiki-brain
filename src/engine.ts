@@ -693,6 +693,7 @@ export class BrainEngine {
 		for (const n of this.nodes) if (n.id !== index.id) n.replayHidden = true;
 		this.packets = [];
 		this.signals = [];
+		this.replayDone = false;
 		this.replayState = { ids, i: 0, next: (this.tNow || performance.now()) + 500, step: clamp(25000 / ids.length, 120, 900), index: index.id, paused: false, speed: o.speed ?? 1, key };
 		this.applyVisibility();
 		return true;
@@ -722,6 +723,13 @@ export class BrainEngine {
 
 	isReplaying(): boolean {
 		return this.replayState !== null;
+	}
+
+	private replayDone = false;
+
+	/** True when the last replay ran to the end (it was not stopped by hand). */
+	replayFinished(): boolean {
+		return this.replayDone;
 	}
 
 	/** Pause or resume the replay; returns true when it is now paused. */
@@ -1269,6 +1277,7 @@ export class BrainEngine {
 				rp.next = this.tNow + rp.step / rp.speed;
 				if (rp.i >= rp.ids.length) {
 					this.replayState = null;
+					this.replayDone = true;
 					this.opts.onStatus(this.opts.text("status.replayDone"));
 					this.opts.onReplay?.(null);
 				}

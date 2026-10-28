@@ -8,6 +8,7 @@ import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 import { logOn, parseLog, LogEntry } from "./logParser";
 import { toWikiLinks } from "./query";
 import { attend } from "./attention";
+import { removeView, saveView } from "./views";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
 
@@ -54,6 +55,7 @@ export class BrainView extends ItemView {
 	private pauseBtn!: HTMLButtonElement;
 	private replayKey: "ctime" | "mtime" = "ctime";
 	private replaySpeed = 1;
+	private replayLoop = false;
 	private logEntries: LogEntry[] = [];
 	private afterRefresh: (() => void)[] = [];
 	private deferred = createDeferredRefresh({
@@ -128,6 +130,8 @@ export class BrainView extends ItemView {
 			this.replaySpeed = Number(speedSel.value);
 			this.engine?.setReplaySpeed(this.replaySpeed);
 		});
+		const loopIn = tools.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop", "aria-label": this.t("replay.loop"), title: this.t("replay.loop") } });
+		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
 		btn(this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
 		this.rotateBtn = btn(this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
 			const on = !this.engine?.isAuto();
@@ -235,26 +239,67 @@ export class BrainView extends ItemView {
 			this.filters.orphansOnly = orphIn.checked;
 			this.applyFilters();
 		});
-		const clear = this.panel.createEl("button", { text: this.t("filters.clear") });
-		clear.addEventListener("click", () => {
-			this.filters = { ...DEFAULT_FILTERS };
-			this.neighborhood = null;
-			degIn.value = "0";
-			degOut.setText("0");
-			daysSel.value = "0";
-			createdSel.value = "0";
-			maxIn.value = "0";
-			maxOut.setText("∞");
-			depthSel.value = "2";
-			invIn.checked = false;
-			orphIn.checked = false;
-			this.folderSel.value = "";
-			this.tagSel.value = "";
-			this.search.value = "";
-			for (const t of TYPES) this.engine?.setHidden(t, false);
+		/** Show `this.filters` in the controls and apply them with the current search. */
+		const showFilters = () => {
+			const f = this.filters;
+			degIn.value = String(f.minDeg);
+			degOut.setText(String(f.minDeg));
+			daysSel.value = String(f.days);
+			createdSel.value = String(f.createdDays);
+			maxIn.value = String(f.maxDeg);
+			maxOut.setText(f.maxDeg ? String(f.maxDeg) : "∞");
+			depthSel.value = String(f.depth);
+			invIn.checked = f.invert;
+			orphIn.checked = f.orphansOnly;
+			this.folderSel.value = f.folder;
+			this.tagSel.value = f.tag;
+			for (const t of TYPES) this.engine?.setHidden(t, f.hidden.includes(t));
 			this.syncChips();
 			this.applyFilters();
 			this.applySearch(false);
+		};
+		const clear = this.panel.createEl("button", { text: this.t("filters.clear") });
+		clear.addEventListener("click", () => {
+			this.filters = { ...DEFAULT_FILTERS, hidden: [] };
+			this.neighborhood = null;
+			this.search.value = "";
+			showFilters();
+		});
+
+		// Saved views: the filters and the search, under a name.
+		const views = this.panel.createDiv({ cls: "llm-wiki-brain-field llm-wiki-brain-views" });
+		const viewSel = views.createEl("select", { attr: { "aria-label": this.t("views.pick") } });
+		const fillViews = (pick = "") => {
+			viewSel.empty();
+			viewSel.createEl("option", { value: "", text: this.t("views.pick") });
+			for (const v of this.plugin.settings.savedViews) viewSel.createEl("option", { value: v.name, text: v.name });
+			viewSel.value = pick;
+		};
+		fillViews();
+		viewSel.addEventListener("change", () => {
+			const v = this.plugin.settings.savedViews.find((x) => x.name === viewSel.value);
+			if (!v) return;
+			this.filters = { ...DEFAULT_FILTERS, ...(v.filters as Partial<Filters>), hidden: Array.isArray(v.filters.hidden) ? (v.filters.hidden as PageType[]) : [] };
+			this.neighborhood = null;
+			this.search.value = v.query;
+			nameIn.value = v.name;
+			showFilters();
+		});
+		const nameIn = views.createEl("input", { type: "text", attr: { placeholder: this.t("views.name"), "aria-label": this.t("views.name") } });
+		const saveBtn = views.createEl("button", { text: this.t("views.save") });
+		saveBtn.addEventListener("click", () => {
+			const name = nameIn.value.trim();
+			if (!name) return;
+			void this.plugin.saveViews(saveView(this.plugin.settings.savedViews, { name, query: this.search.value.trim(), filters: { ...this.filters } }));
+			fillViews(name);
+			new Notice(this.t("views.saved", { name }));
+		});
+		const delBtn = views.createEl("button", { text: this.t("views.delete") });
+		delBtn.addEventListener("click", () => {
+			if (!viewSel.value) return;
+			void this.plugin.saveViews(removeView(this.plugin.settings.savedViews, viewSel.value));
+			nameIn.value = "";
+			fillViews();
 		});
 		this.folderSel.addEventListener("change", () => {
 			this.filters.folder = this.folderSel.value;
@@ -458,6 +503,8 @@ export class BrainView extends ItemView {
 	private showReplay(step: { i: number; n: number; time: number; path: string } | null): void {
 		if (!step) {
 			this.replayBar?.hide();
+			// Replay ended by itself (not stopped with the button): start over when looping.
+			if (this.replayLoop && this.engine?.replayFinished()) window.setTimeout(() => this.replayLoop && this.toggleReplay(), 1200);
 			return;
 		}
 		this.replayBar.show();

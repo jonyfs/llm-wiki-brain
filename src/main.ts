@@ -3,6 +3,7 @@ import { Lang, LangPref, LANG_NAMES, LANGS, resolveLang, StringKey, translate, V
 import { BrainView, VIEW_TYPE_BRAIN } from "./view";
 import { BrainSettings, DEFAULT_SETTINGS, matchQuery, buildVaultGraph } from "./vaultGraph";
 import { Layout, pruneLayout } from "./layout";
+import { cleanViews, SavedView } from "./views";
 
 class AskModal extends Modal {
 	constructor(app: App, private t: (key: StringKey, vars?: Vars) => string, private onSubmit: (q: string) => void) {
@@ -104,8 +105,15 @@ export default class BrainPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const { layout, ...rest } = ((await this.loadData()) ?? {}) as Partial<BrainSettings> & { layout?: Layout };
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, rest);
+		this.settings.savedViews = cleanViews(this.settings.savedViews);
 		this.layout = pruneLayout(layout ?? {}, null);
 		this.refreshLang();
+	}
+
+	/** Saved views change often and need no rebuild of the graph. */
+	async saveViews(list: SavedView[]): Promise<void> {
+		this.settings.savedViews = list;
+		await this.saveData({ ...this.settings, layout: this.layout });
 	}
 
 	async saveSettings(): Promise<void> {

@@ -28,6 +28,8 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
   - `is:orphan`, `is:broken`, `is:untyped`, `is:index`, `is:log`, `is:hub`.
   - With no match, a single word falls back to fuzzy file names. Enter again (or `›`/`‹`) walks the matches; `Copy` puts them on the clipboard as `[[links]]`.
 - **Filters**: also created-in-last-N-days, maximum links, neighbourhood depth 1 to 3, and invert.
+- **Saved views**: name the current filters and search, save them, pick them again from the Filters panel (up to 20, kept in the plugin's data).
+- **Replay loop**: tick the box next to the replay speed to start over when it finishes.
 - **Opens as you left it**: neuron positions are saved, so the brain does not re-settle on every start.
 - Works on desktop and mobile. No network access, no telemetry, no dependencies. Pauses when the pane is hidden and lowers detail when frames get slow.
 
