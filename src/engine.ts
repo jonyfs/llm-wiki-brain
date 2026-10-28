@@ -2,6 +2,7 @@
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
 import { convexHull, neighbourInDirection } from "./hull";
+import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
@@ -64,7 +65,7 @@ export interface EngineOptions {
 	onSettled?: () => void; // the layout stopped moving: a good moment to save it
 	onPin?: (paths: string[]) => void; // the set of pinned pages changed
 	onReplay?: (step: { i: number; n: number; time: number; path: string } | null) => void; // a page just came back (null: the replay ended)
-	text: (key: "status.replayDone" | "status.drawFailed" | "sel.count", vars?: Record<string, string | number>) => string;
+	text: (key: "status.replayDone" | "status.drawFailed" | "sel.count" | "flow.wave" | "flow.done", vars?: Record<string, string | number>) => string;
 	onMulti?: (paths: string[]) => void; // more than one page is selected (empty: back to at most one)
 	onContext?: (path: string | null, ev: MouseEvent) => void;
 	onHelp?: () => void;
@@ -234,6 +235,8 @@ export class BrainEngine {
 	private net: Net | null = null;
 	private pinnedSet = new Set<string>();
 	private multi = new Set<number>();
+	/** The Flow wave in progress: the pages by hop, who each one was reached from, and where it is in time. */
+	private bc: { levels: number[][]; parent: Int32Array; pedge: Int32Array; weak: Uint8Array; t0: number; hop: number; shown: number; focus: number; reached: number; total: number; missed: number[]; endAt: number } | null = null;
 	private area: { x0: number; y0: number; x1: number; y1: number } | null = null;
 	private ghosts = true;
 	private recent = false;
@@ -399,6 +402,7 @@ export class BrainEngine {
 		this.signals = [];
 		this.packets = [];
 		this.waves = [];
+		this.bc = null;
 		this.replayState = null;
 		this.hovered = -1;
 		this.selected = selectedPath && byPath.has(selectedPath) ? (byPath.get(selectedPath) as Cell).id : -1;
@@ -815,6 +819,33 @@ export class BrainEngine {
 		return n.pinned;
 	}
 
+	/**
+	 * Flow to everyone: a wave leaves the index and reaches the pages hop by hop, along the links and then backwards along them;
+	 * what no link reaches gets a dashed arc at the end. `focus` (a path) is the page the wave ends on, with an extra flare.
+	 */
+	broadcast(o: { focus?: string; viewOnly?: boolean } = {}): { reached: number; total: number; hops: number; missed: number } | null {
+		const start = this.indexCell();
+		if (!start || !this.net) return null;
+		const net = this.net;
+		const ok = (i: number) => !this.nodes[i].off && (!o.viewOnly || this.onScreen(this.nodes[i]) || i === start.id);
+		const w = bfsLevels(net.out.map((l) => l.map((x) => x.to)), this.nodes.map((n) => n.adj), start.id, ok);
+		if (w.levels.length < 2) return null;
+		const pedge = new Int32Array(this.nodes.length).fill(-1);
+		for (let c = 0; c < this.nodes.length; c++) if (w.parent[c] >= 0) pedge[c] = this.edgeOf(w.parent[c], c);
+		const reachedAll = w.levels.reduce((a, l) => a + l.length, 0);
+		const missed = this.nodes.filter((n) => !n.off && !n.isIndex && w.level[n.id] < 0 && (!o.viewOnly || this.onScreen(n))).map((n) => n.id);
+		const hops = w.levels.length - 1, hop = this.opts.reducedMotion ? 140 : hopMs(hops, this.opts.flowSpeed());
+		const focus = o.focus ? this.byPath.get(o.focus)?.id ?? -1 : -1;
+		this.packets = [];
+		this.waves = [];
+		const now = this.tNow || performance.now();
+		this.bc = { levels: w.levels, parent: w.parent, pedge, weak: w.weak, t0: now + 200, hop, shown: 0, focus, reached: 1, total: reachedAll + missed.length, missed, endAt: now + 200 + (hops + 1) * hop + 2200 };
+		start.pulse = 1;
+		start.lit = now + 2600;
+		this.start();
+		return { reached: reachedAll, total: reachedAll + missed.length, hops, missed: missed.length };
+	}
+
 	/** Attention: `focus` reaches pages it does not link to, with weights that exist only for the moment (dashed arcs, brighter = heavier). */
 	attend(focus: string, items: { path: string; w: number }[]): number {
 		const from = this.byPath.get(focus);
@@ -900,7 +931,7 @@ export class BrainEngine {
 
 	/** True while a flow, an ask wave or a replay is playing. The view waits for this before rebuilding the graph. */
 	isBusy(): boolean {
-		return this.packets.length > 0 || this.waves.length > 0 || this.replayState !== null;
+		return this.packets.length > 0 || this.waves.length > 0 || this.replayState !== null || this.bc !== null;
 	}
 
 	isReplaying(): boolean {
@@ -987,6 +1018,7 @@ export class BrainEngine {
 		this.flagUntil = 0;
 		this.waves = [];
 		this.packets = [];
+		this.bc = null;
 		this.start();
 	}
 
@@ -1509,6 +1541,30 @@ export class BrainEngine {
 			if (w.from >= 0 && !this.opts.reducedMotion) this.sendSignal(w.from, w.id, 3);
 			this.waves.splice(i, 1);
 		}
+		const bc = this.bc;
+		if (bc) {
+			busy = true;
+			const el = this.tNow - bc.t0;
+			while (bc.shown + 1 < bc.levels.length && el >= (bc.shown + 1) * bc.hop) {
+				bc.shown++;
+				for (const id of bc.levels[bc.shown]) {
+					const n = this.nodes[id];
+					n.pulse = id === bc.focus ? 1.4 : 1;
+					n.lit = this.tNow + (id === bc.focus ? 4200 : 2200);
+					bc.reached++;
+				}
+				this.opts.onStatus(this.opts.text("flow.wave", { hop: bc.shown, hops: bc.levels.length - 1, n: bc.reached, total: bc.total }));
+				if (bc.shown === bc.levels.length - 1) { // the wave is over: what no link reaches gets a dashed arc from the index
+					const from = this.nodes[bc.levels[0][0]];
+					for (const id of bc.missed.slice(0, 40)) this.packets.push({ segs: [[from.id, id, 0.3, -1]], seg: 0, t: 0, v: this.packetSpeed() * 0.7, virtual: true, fade: 1, done: false });
+				}
+			}
+			if (this.tNow >= bc.endAt) {
+				const hops = bc.levels.length - 1;
+				this.opts.onStatus(this.opts.text("flow.done", { n: bc.reached, total: bc.total, hops, missed: bc.missed.length }));
+				this.bc = null;
+			}
+		}
 		const rp = this.replayState;
 		if (rp && !rp.paused) {
 			busy = true;
@@ -1607,6 +1663,84 @@ export class BrainEngine {
 			ctx.moveTo(c[0], c[1]);
 			ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
 		}
+	}
+
+	/** The Flow wave on screen: rings leaving the index, comets running along the links of the current hop, and the links just crossed glowing. */
+	private drawBroadcast(): void {
+		const bc = this.bc;
+		if (!bc || this.opts.reducedMotion) return;
+		const ctx = this.ctx, dpr = this.dpr, hops = bc.levels.length - 1, el = this.tNow - bc.t0;
+		if (el < 0) return;
+		const idx = this.nodes[bc.levels[0][0]];
+		const span = (hops + 1) * bc.hop;
+		// two rings that spread from the index across the whole brain
+		for (let k = 0; k < 2; k++) {
+			const f = (el - k * bc.hop * 0.7) / span;
+			if (f <= 0 || f >= 1.15) continue;
+			ctx.globalAlpha = Math.max(0, 0.5 * (1 - f / 1.15)) * (k ? 0.6 : 1);
+			ctx.strokeStyle = "rgb(" + this.edgeRGB + ")";
+			ctx.lineWidth = (k ? 1.2 : 2) * dpr;
+			ctx.beginPath();
+			ctx.arc(idx.px, idx.py, f * Math.max(this.W, this.H) * 0.62, 0, 6.2832);
+			ctx.stroke();
+		}
+		// links crossed in the last hops keep a glow that fades with their age
+		const cur = Math.min(hops, Math.floor(el / bc.hop) + 1); // the hop in flight
+		const cap = 700;
+		for (let age = 1; age <= 3; age++) {
+			const lv = cur - age;
+			if (lv < 1) continue;
+			const ids = bc.levels[lv];
+			const step = Math.max(1, Math.ceil(ids.length / cap));
+			ctx.globalAlpha = [0, 0.55, 0.3, 0.14][age];
+			ctx.strokeStyle = "rgb(" + this.palRGB[idx.vt] + ")";
+			ctx.lineWidth = (age === 1 ? 2 : 1.4) * dpr;
+			ctx.beginPath();
+			for (let i = 0; i < ids.length; i += step) {
+				const c = ids[i], ei = bc.pedge[c];
+				if (ei < 0 || this.nodes[c].off) continue;
+				const cv = this.ePts(ei, this.edges[ei][0] === bc.parent[c]);
+				ctx.moveTo(cv[0], cv[1]);
+				ctx.bezierCurveTo(cv[2], cv[3], cv[4], cv[5], cv[6], cv[7]);
+			}
+			ctx.stroke();
+		}
+		// comets: one per page of the hop in flight, running from where the wave came from toward the page
+		if (cur >= 1 && cur <= hops && el < span) {
+			const u0 = Math.min(1, (el - (cur - 1) * bc.hop) / bc.hop), u = u0 * u0 * (3 - 2 * u0); // ease in and out
+			const ids = bc.levels[cur], step = Math.max(1, Math.ceil(ids.length / cap));
+			for (let i = 0; i < ids.length; i += step) {
+				const c = ids[i], p = bc.parent[c], ei = bc.pedge[c], node = this.nodes[c];
+				if (node.off || p < 0) continue;
+				const col = "rgb(" + (this.palRGB[this.nodes[p].vt] ?? this.palRGB.concept) + ")", weak = bc.weak[c] === 1;
+				for (let t = 0; t < 5; t++) { // a tail of fading dots
+					const uu = Math.max(0, u - t * 0.06);
+					let x: number, y: number;
+					if (ei >= 0) [x, y] = this.edgePoint(ei, this.edges[ei][0] === p, uu);
+					else [x, y] = [this.nodes[p].px + (node.px - this.nodes[p].px) * uu, this.nodes[p].py + (node.py - this.nodes[p].py) * uu];
+					ctx.globalAlpha = (1 - t / 5) * (weak ? 0.45 : 0.9);
+					ctx.fillStyle = t === 0 ? this.labelColor : col;
+					ctx.beginPath();
+					ctx.arc(x, y, (t === 0 ? 2.4 : 2 - t * 0.25) * dpr, 0, 6.2832);
+					ctx.fill();
+				}
+			}
+		}
+		// the page the wave ends on gets a slow double ring once it has arrived
+		const f = bc.focus >= 0 ? this.nodes[bc.focus] : null;
+		if (f && !f.off && bc.shown >= (bc.levels.findIndex((l) => l.includes(bc.focus)) || 1)) {
+			const age = (this.tNow - f.lit + 4200) / 4200;
+			for (let k = 0; k < 2; k++) {
+				const q = (age * 1.4 + k * 0.4) % 1;
+				ctx.globalAlpha = (1 - q) * 0.6;
+				ctx.strokeStyle = this.labelColor;
+				ctx.lineWidth = 1.5 * dpr;
+				ctx.beginPath();
+				ctx.arc(f.px, f.py, f.pr * (1.6 + q * 3), 0, 6.2832);
+				ctx.stroke();
+			}
+		}
+		ctx.globalAlpha = 1;
 	}
 
 	/** The area being dragged, and for a group of pages: a dashed outline around them and a counter. */
@@ -1821,6 +1955,7 @@ export class BrainEngine {
 		}
 		this.drawSignals(fn, f);
 		this.drawPackets();
+		this.drawBroadcast();
 		this.drawSelection();
 		this.drawLabels(f, fn, nb);
 	}

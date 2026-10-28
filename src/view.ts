@@ -1076,6 +1076,15 @@ export class BrainView extends ItemView {
 	playFlow(opts: { to?: string } = {}): void {
 		if (!this.engine) return;
 		const s = this.plugin.settings;
+		if (!opts.to) {
+			// The Flow button: a wave from the index to every page, ending on the latest created (or edited) one.
+			const pages = (this.graph?.pages ?? []).filter((p) => !p.isIndex && !p.isLog);
+			const key = s.flowTarget === "edited" ? "mtime" : "ctime";
+			const last = pages.reduce<(typeof pages)[number] | null>((b, p) => (!b || p[key] > b[key] ? p : b), null);
+			const r = this.engine.broadcast({ focus: last?.path, viewOnly: s.flowViewOnly });
+			if (!r) this.status.setText(this.t("status.flowNone"));
+			return;
+		}
 		const r = this.engine.playFlow({ to: opts.to, mode: s.flowTarget, viewOnly: s.flowViewOnly });
 		if (!r) {
 			this.status.setText(this.t("status.flowNone"));
