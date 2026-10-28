@@ -2,7 +2,9 @@
 
 See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each `[[wikilink]]` is a synapse, and pages with more links grow bigger. Built for [LLM wikis](https://github.com/jonyfs/llm-wiki-template) (`wiki/sources`, `wiki/entities`, `wiki/concepts`, `wiki/syntheses`, plus `wiki/index.md` and `wiki/log.md`), and it works on any vault.
 
-![The brain with a page selected, search matches ringed, a packet traveling from the index and pages edited today marked (demo vault with sample data)](docs/images/brain.jpg)
+![The plugin's own view on a demo vault: type chips and toolbar at the top, search with an active filter chip and a result list, a selected page with its inputs and outputs, a Flow packet in flight, the legend and the status line](docs/images/brain.jpg)
+
+*Rendered by the plugin's real view, engine and `styles.css` on a synthetic demo vault (generic LLM-wiki page names), in Obsidian's default dark theme. See `scripts/harness/ui.html`.*
 
 ## Contents
 
@@ -164,7 +166,7 @@ npm run build   # type-check and production build
 npm test        # pure modules: search, filters, physics, neuron model, i18n, ...
 ```
 
-`scripts/harness` runs the real engine in a browser on a synthetic vault (see its README). `docs/RELEASE-CHECKLIST.md` is the manual check to run in a real Obsidian before a release.
+`scripts/harness` runs the real engine in a browser on a synthetic vault (see its README); `ui.html` there runs the real view and styles with a small stand-in for the `obsidian` module, and is how the README image is made. `docs/RELEASE-CHECKLIST.md` is the manual check to run in a real Obsidian before a release.
 
 Release: bump `version` in `manifest.json`, `package.json` and `package-lock.json`, add it to `versions.json`, push the commit and the tag; the GitHub Action runs the build and attaches `main.js`, `manifest.json` and `styles.css`.
 

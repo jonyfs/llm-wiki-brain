@@ -9,3 +9,4 @@ scripts/harness/bundle9.js
 scripts/harness/v9.html
 scripts/harness/bundleC*.js
 scripts/harness/vC*.html
+scripts/harness/bundle-ui.js
