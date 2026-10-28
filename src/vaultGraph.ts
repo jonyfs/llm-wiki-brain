@@ -2,6 +2,7 @@ import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
 import { creationTimes } from "./logParser";
 import { matchesQuery, parseQuery } from "./query";
+import type { LangPref } from "./i18n";
 
 export interface BrainSettings {
 	wikiRoot: string;
@@ -15,6 +16,7 @@ export interface BrainSettings {
 	neuronDetail: "auto" | "high" | "simple";
 	followActiveNote: boolean;
 	hoverPreview: boolean;
+	language: LangPref;
 }
 
 export const DEFAULT_SETTINGS: BrainSettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	neuronDetail: "auto",
 	followActiveNote: true,
 	hoverPreview: true,
+	language: "auto",
 };
 
 const FOLDER_TYPES: Record<string, PageType> = {

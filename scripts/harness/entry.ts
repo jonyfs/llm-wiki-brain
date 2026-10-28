@@ -28,6 +28,7 @@ const e = new BrainEngine(canvas, {
 	ambient: () => 2,
 	flowSpeed: () => 1,
 	detail: () => "high" as const,
+	text: (k: string) => k,
 	onOpen: (p) => log.push("open " + p),
 	onHover: () => {},
 	onSelect: (i) => log.push("select " + (i ? i.path + " deg=" + i.deg : "none")),

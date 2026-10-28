@@ -20,6 +20,10 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
 - **Opens as you left it**: neuron positions are saved, so the brain does not re-settle on every start.
 - Works on desktop and mobile. No network access, no telemetry, no dependencies. Pauses when the pane is hidden and lowers detail when frames get slow.
 
+## Languages
+
+English (default), Portuguese (Brazil), Spanish and French. The plugin follows Obsidian's own language; pick another one in the plugin settings (Language). Other Obsidian languages show English. To add a language, copy a block in `src/i18n.ts`; the tests check that every key and every `{placeholder}` is present.
+
 ## Page types
 
 The type comes from, in order: the `type` frontmatter field (`source`, `entity`, `concept`, `synthesis`), a parent folder with one of those names, or a stable guess from the folder name.

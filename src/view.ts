@@ -3,6 +3,7 @@ import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
 import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
 import { createDeferredRefresh } from "./refresh";
+import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
@@ -17,11 +18,11 @@ interface Filters {
 }
 
 const DEFAULT_FILTERS: Filters = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, hidden: [] };
-const IDLE_TIP = "Drag to rotate, scroll to zoom, click to select, double-click to open.";
 
 export class BrainView extends ItemView {
 	engine: BrainEngine | null = null;
 	hoverPopover: HoverPopover | null = null;
+	private t = (key: StringKey, vars?: Vars) => this.plugin.t(key, vars);
 	private graph: VaultGraph | null = null;
 	private filters: Filters = { ...DEFAULT_FILTERS };
 	private tip!: HTMLElement;
@@ -57,7 +58,7 @@ export class BrainView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "LLM wiki brain";
+		return this.t("view.title");
 	}
 
 	getIcon(): string {
@@ -82,9 +83,9 @@ export class BrainView extends ItemView {
 
 		const bar = root.createDiv({ cls: "llm-wiki-brain-bar" });
 		for (const t of TYPES) {
-			const chip = bar.createEl("button", { cls: "llm-wiki-brain-chip", attr: { "aria-pressed": "true", "data-type": t, "aria-label": `Toggle ${t} pages` } });
+			const chip = bar.createEl("button", { cls: "llm-wiki-brain-chip", attr: { "aria-pressed": "true", "data-type": t, "aria-label": this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }) } });
 			chip.createSpan({ cls: "llm-wiki-brain-dot" });
-			chip.createSpan({ text: t });
+			chip.createSpan({ text: this.t(("type." + t) as StringKey) });
 			chip.createSpan({ cls: "llm-wiki-brain-n" });
 			chip.addEventListener("click", () => this.toggleType(t));
 			this.chips.set(t, chip);
@@ -96,19 +97,19 @@ export class BrainView extends ItemView {
 			b.addEventListener("click", fn);
 			return b;
 		};
-		btn("Flow", "Send information from the index to the latest page", () => this.playFlow());
-		this.replayBtn = btn("Replay", "Grow the brain again in creation order", () => this.toggleReplay());
-		btn("Lint", "Mark orphan pages, broken links and untyped pages", () => this.runLint());
-		this.rotateBtn = btn("Rotate", "Toggle the slow rotation", () => {
+		btn(this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
+		this.replayBtn = btn(this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
+		btn(this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
+		this.rotateBtn = btn(this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
 			const on = !this.engine?.isAuto();
 			this.engine?.setAuto(on);
 			this.rotateBtn.setAttribute("aria-pressed", String(on));
 		});
-		btn("Reset", "Reset the camera and the selection", () => this.engine?.resetView());
-		btn("Full", "Toggle full screen", () => this.toggleFullscreen());
+		btn(this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
+		btn(this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
 
 		const searchRow = root.createDiv({ cls: "llm-wiki-brain-search" });
-		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: "Search: words, path:, file:, tag:, type:, -not. Enter to ask.", "aria-label": "Search pages" } });
+		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: this.t("search.placeholder"), "aria-label": this.t("search.aria") } });
 		let timer = 0;
 		this.search.addEventListener("input", () => {
 			window.clearTimeout(timer);
@@ -121,7 +122,7 @@ export class BrainView extends ItemView {
 				this.applySearch(false);
 			}
 		});
-		const filterBtn = searchRow.createEl("button", { text: "Filters", attr: { "aria-expanded": "false" } });
+		const filterBtn = searchRow.createEl("button", { text: this.t("filters.button"), attr: { "aria-expanded": "false" } });
 		filterBtn.addEventListener("click", () => {
 			const open = this.panel.hasClass("is-open");
 			this.panel.toggleClass("is-open", !open);
@@ -129,11 +130,11 @@ export class BrainView extends ItemView {
 		});
 
 		this.panel = root.createDiv({ cls: "llm-wiki-brain-panel" });
-		this.folderSel = this.field("Folder");
-		this.tagSel = this.field("Tag");
+		this.folderSel = this.field(this.t("filters.folder"));
+		this.tagSel = this.field(this.t("filters.tag"));
 		const deg = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
-		deg.createEl("label", { text: "Min links" });
-		const degIn = deg.createEl("input", { type: "range", attr: { min: "0", max: "10", step: "1", value: "0", "aria-label": "Minimum links" } });
+		deg.createEl("label", { text: this.t("filters.minLinks") });
+		const degIn = deg.createEl("input", { type: "range", attr: { min: "0", max: "10", step: "1", value: "0", "aria-label": this.t("filters.minLinks.aria") } });
 		const degOut = deg.createSpan({ text: "0" });
 		degIn.addEventListener("input", () => {
 			degOut.setText(degIn.value);
@@ -141,21 +142,21 @@ export class BrainView extends ItemView {
 			this.applyFilters();
 		});
 		const days = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
-		days.createEl("label", { text: "Edited" });
+		days.createEl("label", { text: this.t("filters.edited") });
 		const daysSel = days.createEl("select");
-		for (const [v, l] of [["0", "any time"], ["7", "last 7 days"], ["30", "last 30 days"], ["365", "last year"]]) daysSel.createEl("option", { value: v, text: l });
+		for (const [v, l] of [["0", this.t("filters.anyTime")], ["7", this.t("filters.days7")], ["30", this.t("filters.days30")], ["365", this.t("filters.year")]]) daysSel.createEl("option", { value: v, text: l });
 		daysSel.addEventListener("change", () => {
 			this.filters.days = Number(daysSel.value);
 			this.applyFilters();
 		});
 		const orph = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		const orphIn = orph.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-orphans" } });
-		orph.createEl("label", { text: "Orphans only", attr: { for: "llm-wiki-brain-orphans" } });
+		orph.createEl("label", { text: this.t("filters.orphansOnly"), attr: { for: "llm-wiki-brain-orphans" } });
 		orphIn.addEventListener("change", () => {
 			this.filters.orphansOnly = orphIn.checked;
 			this.applyFilters();
 		});
-		const clear = this.panel.createEl("button", { text: "Clear filters" });
+		const clear = this.panel.createEl("button", { text: this.t("filters.clear") });
 		clear.addEventListener("click", () => {
 			this.filters = { ...DEFAULT_FILTERS };
 			this.neighborhood = null;
@@ -182,7 +183,7 @@ export class BrainView extends ItemView {
 
 		const stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
 		const canvas = stage.createEl("canvas", {
-			attr: { tabindex: "0", role: "img", "aria-label": "Interactive 3D brain of your wiki pages and links. Drag to rotate, arrow keys to orbit, plus and minus to zoom, Enter to open the selected page." },
+			attr: { tabindex: "0", role: "img", "aria-label": this.t("canvas.aria") },
 		});
 		this.info = root.createDiv({ cls: "llm-wiki-brain-info", attr: { "aria-live": "polite" } });
 		this.info.hide();
@@ -190,7 +191,7 @@ export class BrainView extends ItemView {
 		this.lintBox.hide();
 		const foot = root.createDiv({ cls: "llm-wiki-brain-foot" });
 		this.status = foot.createSpan({ cls: "llm-wiki-brain-status" });
-		this.tip = foot.createSpan({ cls: "llm-wiki-brain-tip", text: IDLE_TIP });
+		this.tip = foot.createSpan({ cls: "llm-wiki-brain-tip", text: this.t("tip.idle") });
 
 		const reduced = s.reduceMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		this.engine = new BrainEngine(canvas, {
@@ -200,7 +201,7 @@ export class BrainView extends ItemView {
 			detail: () => this.plugin.settings.neuronDetail,
 			onOpen: (path) => this.openNote(path),
 			onHover: (path, ev) => {
-				this.tip.setText(path ?? IDLE_TIP);
+				this.tip.setText(path ?? this.t("tip.idle"));
 				// The core Page Preview shows the note, with its usual modifier key.
 				if (path && ev && this.plugin.settings.hoverPreview) {
 					this.app.workspace.trigger("hover-link", { event: ev, source: VIEW_TYPE_BRAIN, hoverParent: this, targetEl: this.contentEl, linktext: path });
@@ -210,6 +211,7 @@ export class BrainView extends ItemView {
 			onStatus: (msg) => this.status.setText(msg),
 			onFullscreen: () => this.toggleFullscreen(),
 			onSettled: () => this.plugin.saveLayout(this.engine?.layout() ?? {}),
+			text: (key, vars) => this.t(key, vars),
 		});
 		this.rotateBtn.setAttribute("aria-pressed", String(this.engine.isAuto()));
 		this.registerEvent(this.app.workspace.on("css-change", () => this.engine?.readTheme()));
@@ -236,7 +238,7 @@ export class BrainView extends ItemView {
 	private toggleFullscreen(): void {
 		const el = this.contentEl;
 		if (document.fullscreenElement) void document.exitFullscreen();
-		else void el.requestFullscreen?.().catch(() => new Notice("Full screen is not available here."));
+		else void el.requestFullscreen?.().catch(() => new Notice(this.t("fullscreen.unavailable")));
 	}
 
 	/**
@@ -260,7 +262,7 @@ export class BrainView extends ItemView {
 		this.syncChips();
 		this.applyFilters();
 		this.updateStatus();
-		if (!this.graph.pages.length) this.tip.setText("No pages found. Check the wiki folder in the plugin settings.");
+		if (!this.graph.pages.length) this.tip.setText(this.t("tip.noPages"));
 	}
 
 	private fillSelects(): void {
@@ -277,9 +279,9 @@ export class BrainView extends ItemView {
 			if (m.folder) folders.add(m.folder);
 			for (const t of m.tags) tagCount.set(t, (tagCount.get(t) ?? 0) + 1);
 		}
-		fill(this.folderSel, "all folders", Array.from(folders).sort(), this.filters.folder);
+		fill(this.folderSel, this.t("filters.allFolders"), Array.from(folders).sort(), this.filters.folder);
 		const tags = Array.from(tagCount.entries()).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => t);
-		fill(this.tagSel, "all tags", tags, this.filters.tag);
+		fill(this.tagSel, this.t("filters.allTags"), tags, this.filters.tag);
 	}
 
 	private syncChips(): void {
@@ -328,14 +330,14 @@ export class BrainView extends ItemView {
 		this.engine.setMatch(hits);
 		if (ask) {
 			const n = this.engine.ask(Array.from(hits));
-			this.status.setText(n ? `${n} page(s) match. The answer spreads along their links.` : "No matching pages.");
-		} else this.status.setText(`${hits.size} match(es).`);
+			this.status.setText(n ? this.t("status.ask", { n }) : this.t("status.noMatch"));
+		} else this.status.setText(this.t("status.matches", { n: hits.size }));
 	}
 
 	private updateStatus(): void {
 		if (!this.engine || !this.graph) return;
 		const s = this.engine.stats();
-		this.status.setText(`${s.visible}/${s.nodes} pages, ${s.links} links, ${this.graph.orphans.length} orphans, ${this.graph.broken.length} with broken links`);
+		this.status.setText(this.t("status.summary", { visible: s.visible, nodes: s.nodes, links: s.links, orphans: this.graph.orphans.length, broken: this.graph.broken.length }));
 	}
 
 	private showInfo(info: NodeInfo | null): void {
@@ -347,16 +349,16 @@ export class BrainView extends ItemView {
 		this.info.show();
 		const head = this.info.createDiv({ cls: "llm-wiki-brain-info-head" });
 		head.createEl("strong", { text: info.label });
-		const close = head.createEl("button", { text: "×", attr: { "aria-label": "Clear selection" } });
+		const close = head.createEl("button", { text: "×", attr: { "aria-label": this.t("info.clear.aria") } });
 		close.addEventListener("click", () => this.engine?.selectPath(null));
-		const fmt = (t: number) => new Date(t).toLocaleDateString();
-		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: `${info.type} · ${info.deg} links · created ${fmt(info.ctime)} · edited ${fmt(info.mtime)}` });
+		const fmt = (t: number) => new Date(t).toLocaleDateString(this.plugin.lang);
+		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.meta", { type: this.t(("type." + info.type) as StringKey), deg: info.deg, created: fmt(info.ctime), edited: fmt(info.mtime) }) });
 		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: info.path });
 		const actions = this.info.createDiv({ cls: "llm-wiki-brain-actions" });
 		const act = (label: string, fn: () => void) => actions.createEl("button", { text: label }).addEventListener("click", fn);
-		act("Open", () => this.openNote(info.path));
-		act("Flow from index", () => this.playFlow({ to: info.path }));
-		act(this.neighborhood === info.path ? "Show all" : "Only neighborhood", () => {
+		act(this.t("info.open"), () => this.openNote(info.path));
+		act(this.t("info.flowFrom"), () => this.playFlow({ to: info.path }));
+		act(this.neighborhood === info.path ? this.t("info.showAll") : this.t("info.onlyNeighborhood"), () => {
 			this.neighborhood = this.neighborhood === info.path ? null : info.path;
 			this.applyFilters();
 			this.showInfo(info);
@@ -375,22 +377,22 @@ export class BrainView extends ItemView {
 		const s = this.plugin.settings;
 		const r = this.engine.playFlow({ to: opts.to, mode: s.flowTarget, viewOnly: s.flowViewOnly });
 		if (!r) {
-			this.status.setText("Nothing to send: no index or no visible target page.");
+			this.status.setText(this.t("status.flowNone"));
 			return;
 		}
 		const name = (p: string) => p.split("/").pop()?.replace(/\.md$/, "") ?? p;
-		this.status.setText(r.virtual ? `${name(r.from)} to ${name(r.to)}: no link yet, showing a dashed arc.` : `${name(r.from)} to ${name(r.to)} in ${r.hops} hop(s).`);
+		this.status.setText(r.virtual ? this.t("status.flowVirtual", { from: name(r.from), to: name(r.to) }) : this.t("status.flowRoute", { from: name(r.from), to: name(r.to), hops: r.hops }));
 	}
 
 	private toggleReplay(): void {
 		if (!this.engine) return;
 		const running = this.engine.replay();
-		this.replayBtn.setText(running ? "Stop" : "Replay");
+		this.replayBtn.setText(running ? this.t("btn.stop") : this.t("btn.replay"));
 		if (running) {
 			const poll = window.setInterval(() => {
 				if (!this.engine?.isReplaying()) {
 					window.clearInterval(poll);
-					this.replayBtn.setText("Replay");
+					this.replayBtn.setText(this.t("btn.replay"));
 				}
 			}, 500);
 			this.registerInterval(poll);
@@ -415,8 +417,8 @@ export class BrainView extends ItemView {
 		this.lintBox.empty();
 		this.lintBox.show();
 		const head = this.lintBox.createDiv({ cls: "llm-wiki-brain-info-head" });
-		head.createEl("strong", { text: "Wiki lint" });
-		head.createEl("button", { text: "×", attr: { "aria-label": "Close lint results" } }).addEventListener("click", () => this.lintBox.hide());
+		head.createEl("strong", { text: this.t("lint.title") });
+		head.createEl("button", { text: "×", attr: { "aria-label": this.t("lint.close.aria") } }).addEventListener("click", () => this.lintBox.hide());
 		const section = (title: string, paths: string[]) => {
 			this.lintBox.createDiv({ cls: "llm-wiki-brain-meta", text: `${title}: ${paths.length}` });
 			const list = this.lintBox.createDiv({ cls: "llm-wiki-brain-neighbors" });
@@ -425,9 +427,9 @@ export class BrainView extends ItemView {
 				list.createEl("button", { text: label, attr: { title: p } }).addEventListener("click", () => this.engine?.selectPath(p, true));
 			}
 		};
-		section("Orphan pages", g.orphans);
-		section("Pages with broken links", g.broken);
-		section("Pages without a type", g.untyped);
-		new Notice(`Wiki lint: ${g.orphans.length} orphan(s), ${g.broken.length} with broken links, ${g.untyped.length} without a type.`);
+		section(this.t("lint.orphans"), g.orphans);
+		section(this.t("lint.broken"), g.broken);
+		section(this.t("lint.untyped"), g.untyped);
+		new Notice(this.t("lint.notice", { orphans: g.orphans.length, broken: g.broken.length, untyped: g.untyped.length }));
 	}
 }

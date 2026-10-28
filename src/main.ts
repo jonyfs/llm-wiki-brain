@@ -1,18 +1,19 @@
-import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, debounce } from "obsidian";
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, debounce, getLanguage } from "obsidian";
+import { Lang, LangPref, LANG_NAMES, LANGS, resolveLang, StringKey, translate, Vars } from "./i18n";
 import { BrainView, VIEW_TYPE_BRAIN } from "./view";
 import { BrainSettings, DEFAULT_SETTINGS, matchQuery, buildVaultGraph } from "./vaultGraph";
 import { Layout, pruneLayout } from "./layout";
 
 class AskModal extends Modal {
-	constructor(app: App, private onSubmit: (q: string) => void) {
+	constructor(app: App, private t: (key: StringKey, vars?: Vars) => string, private onSubmit: (q: string) => void) {
 		super(app);
 	}
 
 	onOpen(): void {
-		this.titleEl.setText("Ask the brain");
+		this.titleEl.setText(this.t("ask.title"));
 		let q = "";
-		new Setting(this.contentEl).setName("Words to look for in page names, headings and tags").addText((t) => {
-			t.setPlaceholder("compounding ingest").onChange((v) => (q = v));
+		new Setting(this.contentEl).setName(this.t("ask.desc")).addText((t) => {
+			t.setPlaceholder(this.t("ask.placeholder")).onChange((v) => (q = v));
 			t.inputEl.addEventListener("keydown", (e) => {
 				if (e.key === "Enter") {
 					this.close();
@@ -31,6 +32,7 @@ class AskModal extends Modal {
 export default class BrainPlugin extends Plugin {
 	settings: BrainSettings = DEFAULT_SETTINGS;
 	layout: Layout = {};
+	lang: Lang = "en";
 	private saveLayoutLater = debounce((l: Layout) => {
 		this.layout = pruneLayout(l, null);
 		void this.saveData({ ...this.settings, layout: this.layout });
@@ -40,25 +42,26 @@ export default class BrainPlugin extends Plugin {
 		await this.loadSettings();
 		this.registerView(VIEW_TYPE_BRAIN, (leaf) => new BrainView(leaf, this));
 		this.registerHoverLinkSource(VIEW_TYPE_BRAIN, { display: "LLM Wiki Brain", defaultMod: true });
-		this.addRibbonIcon("brain", "Open LLM wiki brain", () => void this.activate());
-		this.addCommand({ id: "open", name: "Open brain view", callback: () => void this.activate() });
+		const t = (k: StringKey, v?: Vars) => this.t(k, v);
+		this.addRibbonIcon("brain", t("cmd.ribbon"), () => void this.activate());
+		this.addCommand({ id: "open", name: t("cmd.open"), callback: () => void this.activate() });
 		this.addCommand({
 			id: "ask",
-			name: "Ask the brain",
+			name: t("cmd.ask"),
 			callback: () => {
 				void this.activate().then(() =>
-					new AskModal(this.app, (q) => {
+					new AskModal(this.app, t, (q) => {
 						const hits = Array.from(matchQuery(buildVaultGraph(this.app, this.settings), q));
 						this.views().forEach((v) => v.engine?.ask(hits));
-						new Notice(hits.length ? `${hits.length} page(s) lit up.` : "No matching pages.");
+						new Notice(hits.length ? t("ask.lit", { n: hits.length }) : t("status.noMatch"));
 					}).open(),
 				);
 			},
 		});
-		this.addCommand({ id: "lint", name: "Run wiki lint overlay", callback: () => void this.activate().then(() => this.views().forEach((v) => v.runLint())) });
-		this.addCommand({ id: "clear", name: "Clear highlights", callback: () => this.views().forEach((v) => v.engine?.clearMarks()) });
-		this.addCommand({ id: "flow", name: "Send information from the index to the latest page", callback: () => void this.activate().then(() => this.views().forEach((v) => v.playFlow())) });
-		this.addCommand({ id: "replay", name: "Replay the wiki growing in creation order", callback: () => void this.activate().then(() => this.views().forEach((v) => v.engine?.replay())) });
+		this.addCommand({ id: "lint", name: t("cmd.lint"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.runLint())) });
+		this.addCommand({ id: "clear", name: t("cmd.clear"), callback: () => this.views().forEach((v) => v.engine?.clearMarks()) });
+		this.addCommand({ id: "flow", name: t("cmd.flow"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.playFlow())) });
+		this.addCommand({ id: "replay", name: t("cmd.replay"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.engine?.replay())) });
 		this.addSettingTab(new BrainSettingTab(this.app, this));
 
 		let pending: string | null = null; // a page created a moment ago: once it is indexed, information flows to it
@@ -102,11 +105,28 @@ export default class BrainPlugin extends Plugin {
 		const { layout, ...rest } = ((await this.loadData()) ?? {}) as Partial<BrainSettings> & { layout?: Layout };
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, rest);
 		this.layout = pruneLayout(layout ?? {}, null);
+		this.refreshLang();
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData({ ...this.settings, layout: this.layout });
+		this.refreshLang();
 		this.views().forEach((v) => void v.refresh());
+	}
+
+	/** Auto follows Obsidian (getLanguage on 1.8+, the stored language before that); English when it is not one of ours. */
+	refreshLang(): void {
+		let obs: string | null = null;
+		try {
+			obs = typeof getLanguage === "function" ? getLanguage() : window.localStorage.getItem("language");
+		} catch {
+			obs = null;
+		}
+		this.lang = resolveLang(this.settings.language, obs);
+	}
+
+	t(key: StringKey, vars?: Vars): string {
+		return translate(this.lang, key, vars);
 	}
 
 	saveLayout(l: Layout): void {
@@ -133,9 +153,20 @@ class BrainSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		const t = (k: StringKey, v?: Vars) => this.plugin.t(k, v);
 		new Setting(containerEl)
-			.setName("Wiki folder")
-			.setDesc("Only pages inside this folder become neurons. Leave empty to use the whole vault.")
+			.setName(t("set.lang.name"))
+			.setDesc(t("set.lang.desc"))
+			.addDropdown((d) =>
+				d.addOption("auto", t("set.lang.auto")).addOptions(Object.fromEntries(LANGS.map((l) => [l, LANG_NAMES[l]]))).setValue(this.plugin.settings.language).onChange(async (v) => {
+					this.plugin.settings.language = v as LangPref;
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+			);
+		new Setting(containerEl)
+			.setName(t("set.folder.name"))
+			.setDesc(t("set.folder.desc"))
 			.addText((t) =>
 				t.setPlaceholder("wiki").setValue(this.plugin.settings.wikiRoot).onChange(async (v) => {
 					this.plugin.settings.wikiRoot = v;
@@ -143,8 +174,8 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Maximum pages")
-			.setDesc("Larger vaults keep only the most connected pages, so the brain stays smooth.")
+			.setName(t("set.max.name"))
+			.setDesc(t("set.max.desc"))
 			.addSlider((s) =>
 				s.setLimits(100, 2000, 50).setValue(this.plugin.settings.maxNodes).setDynamicTooltip().onChange(async (v) => {
 					this.plugin.settings.maxNodes = v;
@@ -152,34 +183,34 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Ambient signals")
-			.setDesc("Small signals that keep traveling along links. Off saves battery.")
+			.setName(t("set.ambient.name"))
+			.setDesc(t("set.ambient.desc"))
 			.addDropdown((d) =>
-				d.addOptions({ off: "Off", calm: "Calm", lively: "Lively" }).setValue(this.plugin.settings.ambient).onChange(async (v) => {
+				d.addOptions({ off: t("set.ambient.off"), calm: t("set.ambient.calm"), lively: t("set.ambient.lively") }).setValue(this.plugin.settings.ambient).onChange(async (v) => {
 					this.plugin.settings.ambient = v as BrainSettings["ambient"];
 					await this.plugin.saveSettings();
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Flow speed")
+			.setName(t("set.speed.name"))
 			.addDropdown((d) =>
-				d.addOptions({ slow: "Slow", normal: "Normal", fast: "Fast" }).setValue(this.plugin.settings.flowSpeed).onChange(async (v) => {
+				d.addOptions({ slow: t("set.speed.slow"), normal: t("set.speed.normal"), fast: t("set.speed.fast") }).setValue(this.plugin.settings.flowSpeed).onChange(async (v) => {
 					this.plugin.settings.flowSpeed = v as BrainSettings["flowSpeed"];
 					await this.plugin.saveSettings();
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Flow target")
-			.setDesc("Which page the Flow button sends information to.")
+			.setName(t("set.target.name"))
+			.setDesc(t("set.target.desc"))
 			.addDropdown((d) =>
-				d.addOptions({ created: "Latest created page", edited: "Latest edited page" }).setValue(this.plugin.settings.flowTarget).onChange(async (v) => {
+				d.addOptions({ created: t("set.target.created"), edited: t("set.target.edited") }).setValue(this.plugin.settings.flowTarget).onChange(async (v) => {
 					this.plugin.settings.flowTarget = v as BrainSettings["flowTarget"];
 					await this.plugin.saveSettings();
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Flow stays in view")
-			.setDesc("Only route through pages visible on screen and not hidden by filters.")
+			.setName(t("set.view.name"))
+			.setDesc(t("set.view.desc"))
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.flowViewOnly).onChange(async (v) => {
 					this.plugin.settings.flowViewOnly = v;
@@ -187,8 +218,8 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Flow to new pages")
-			.setDesc("When you create a page, send information from the index to it.")
+			.setName(t("set.new.name"))
+			.setDesc(t("set.new.desc"))
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.autoFlowOnCreate).onChange(async (v) => {
 					this.plugin.settings.autoFlowOnCreate = v;
@@ -196,17 +227,17 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Neuron detail")
-			.setDesc("Auto lowers the detail when frames get slow. High always draws full neurons. Simple draws plain spheres.")
+			.setName(t("set.detail.name"))
+			.setDesc(t("set.detail.desc"))
 			.addDropdown((d) =>
-				d.addOptions({ auto: "Auto", high: "High", simple: "Simple" }).setValue(this.plugin.settings.neuronDetail).onChange(async (v) => {
+				d.addOptions({ auto: t("set.detail.auto"), high: t("set.detail.high"), simple: t("set.detail.simple") }).setValue(this.plugin.settings.neuronDetail).onChange(async (v) => {
 					this.plugin.settings.neuronDetail = v as BrainSettings["neuronDetail"];
 					await this.plugin.saveSettings();
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Follow the open note")
-			.setDesc("When you open a note, select its neuron and move the camera to it.")
+			.setName(t("set.follow.name"))
+			.setDesc(t("set.follow.desc"))
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.followActiveNote).onChange(async (v) => {
 					this.plugin.settings.followActiveNote = v;
@@ -214,8 +245,8 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Preview on hover")
-			.setDesc("Show the note preview when you hover a neuron (uses the Page Preview core plugin and its modifier key).")
+			.setName(t("set.hover.name"))
+			.setDesc(t("set.hover.desc"))
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.hoverPreview).onChange(async (v) => {
 					this.plugin.settings.hoverPreview = v;
@@ -223,8 +254,8 @@ class BrainSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Reduce motion")
-			.setDesc("Settle the layout instantly and stop the slow rotation. Reopen the view to apply.")
+			.setName(t("set.reduce.name"))
+			.setDesc(t("set.reduce.desc"))
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.reduceMotion).onChange(async (v) => {
 					this.plugin.settings.reduceMotion = v;

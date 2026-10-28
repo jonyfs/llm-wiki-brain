@@ -55,6 +55,7 @@ export interface EngineOptions {
 	onStatus: (msg: string) => void;
 	onFullscreen: () => void;
 	onSettled?: () => void; // the layout stopped moving: a good moment to save it
+	text: (key: "status.replayDone" | "status.drawFailed", vars?: Record<string, string | number>) => string;
 }
 
 interface Cell {
@@ -1156,7 +1157,7 @@ export class BrainEngine {
 				rp.next = this.tNow + rp.step;
 				if (rp.i >= rp.ids.length) {
 					this.replayState = null;
-					this.opts.onStatus("Replay finished.");
+					this.opts.onStatus(this.opts.text("status.replayDone"));
 				}
 			}
 		}
@@ -1182,7 +1183,7 @@ export class BrainEngine {
 				this.quality = 0;
 				this.signals = [];
 				console.warn("llm-wiki-brain: draw failed", err);
-				this.reportDrawFailure("Drawing failed (" + (err instanceof Error ? err.message : String(err)) + "). Switched to simple mode. Include this message in a bug report.");
+				this.reportDrawFailure(this.opts.text("status.drawFailed", { error: err instanceof Error ? err.message : String(err) }));
 			}
 			this.lastDraw = now;
 			this.tune(performance.now() - t0);
