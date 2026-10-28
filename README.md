@@ -1,72 +1,159 @@
 # LLM Wiki Brain
 
-See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each `[[wikilink]]` is a synapse, and pages that get more links grow bigger. Built for [LLM wikis](https://github.com/jonyfs/llm-wiki-template) (`wiki/sources`, `wiki/entities`, `wiki/concepts`, `wiki/syntheses`), and it works on any vault.
+See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each `[[wikilink]]` is a synapse, and pages with more links grow bigger. Built for [LLM wikis](https://github.com/jonyfs/llm-wiki-template) (`wiki/sources`, `wiki/entities`, `wiki/concepts`, `wiki/syntheses`, plus `wiki/index.md` and `wiki/log.md`), and it works on any vault.
 
-![The brain with a packet traveling from the index to a page, and search results lit up (sample data)](docs/images/brain.jpg)
+![The brain with a page selected, search matches ringed, a packet traveling from the index and pages edited today marked (demo vault with sample data)](docs/images/brain.jpg)
 
-## Features
+## Contents
 
-- **Brain view**: open it from the ribbon icon or the command `LLM Wiki Brain: Open brain view`. Drag to rotate, scroll to zoom at the cursor, `Shift`-drag to pan, pinch on touch screens. Linked pages share a region of the brain.
-- **Information flow**: the **Flow** button (or the command) sends a packet from the index along the shortest chain of links to the latest created page, with a trail and one pulse per hop. When the page has no link from the index yet, a dashed arc shows where the link is missing. Pick "latest edited" or "stay in view" in the settings, or use **Flow from index** on any selected page. New pages get a flow automatically.
-- **Replay**: the brain empties and the pages return in creation order (or by last edit), each fed from the index. Pause, speed 0.5× to 4×, and a caption with the date, progress and the operations `wiki/log.md` recorded that day.
-- **Ambient signals**: small signals keep traveling along links and carry on to neighbors. Off, calm or lively.
-- **Selection**: click selects and keeps the selection, with a panel for type, dates, links and neighbors. Double-click or `Enter` opens the note; `Esc` clears. `[` and `]` step through the hubs.
-- **Search and Ask**: type to dim everything that does not match; press `Enter` to ask, and the answer spreads two hops along the links.
-- **Filters**: page type, folder, tag, minimum links, edited in the last N days, orphans only, or only the neighborhood of the selected page. Filters are saved with the pane.
-- **Lint**: orphan pages, pages with broken links and pages without a type get a dashed ring, with a clickable list.
-- **A neuron, not a dot**: an irregular cell body pulled toward its main dendrites, branches that narrow and fork, spines on the thin ones, an axon with a cone and terminal boutons. Each link leaves through a free dendrite pointing toward the other page and ends in a bouton; busy hubs grow extra branches; free branches stay faint. Four shapes, one per page type. "Neuron detail" in the settings: Auto (lowers detail when frames get slow), High, or Simple.
-- **Follows you**: open a note and its neuron is selected and centered. Hover a neuron for the note preview (Page Preview core plugin, with its usual modifier key).
-- **Neuron model**: a link is a synapse. It leaves through the axon of the page that holds it and lands on a dendrite of the page it points to; signals only travel that way. Each page adds up what arrives, leaks charge over time and fires all-or-nothing at a threshold (the arc around the soma shows how close it is). Ask follows outgoing links, so a page fed by several matches fires. Links used together grow stronger and fade when idle.
-  - **Inhibition**: a frontmatter link under `contradicts`, `contradiz`, `contradice`, `contredit`, `conflicts`, `refutes` or `disputes` inhibits: its spikes are red and lower the target's charge instead of raising it.
-  - **Myelin**: links between busy pages conduct faster, in jumps like the nodes of Ranvier.
-  - **Attention**: the `Attention` button in a page's panel shows, for a moment, the most similar pages it does not link to (dashed arcs, brighter = heavier weight).
-- **Search syntax**: words, `path:`, `file:`, `tag:` (nested tags too), `type:`, `heading:` and `-` to exclude, for example `path:concepts tag:ai -type:source`. Quotes keep phrases together: `path:"my folder"`.
-  - `or` joins alternatives: `tag:ai or tag:ml`.
-  - `links:>3`, `links:0` compare the number of links.
-  - `created:<7d`, `edited:>30d`, `edited:>2026-01-01` take an age (`d`, `w`, `m`, `y`) or a date.
-  - `prop:status=draft`, `prop:author~ana`, `prop:status` read frontmatter (equals, contains, exists).
-  - `is:orphan`, `is:broken`, `is:untyped`, `is:index`, `is:log`, `is:hub`.
-  - With no match, a single word falls back to fuzzy file names. Enter again (or `›`/`‹`) walks the matches; `Copy` puts them on the clipboard as `[[links]]`.
-- **Filters**: also created-in-last-N-days, maximum links, neighbourhood depth 1 to 3, and invert.
-- **Selection**: Cmd/Ctrl+click adds pages, Alt+drag selects an area, Alt+click on the cloud selects a lobe. A group shows a dashed outline and a counter, and can be isolated, copied as links, turned into an Obsidian Canvas, or (two pages) joined by a route. Right-click opens a menu.
-- **Visibility**: active filters appear as removable chips under the search box; hidden pages can stay as faint dots; neighbours of the page in focus get a halo; colour pages by type, folder, tag, age or links, and size them by links or recency, with a legend.
-- **Search extras**: `/regex/`, `to:` and `from:` (links to / is linked from), `edited:today`, completions as you type, a clickable result list, and a "hide non-matches" mode. The `?` button shows the syntax with examples.
-- **Tooltip and details**: hovering shows a card (type, inputs, outputs, last edit); the panel keeps inputs, outputs and properties in collapsible sections.
-- **Camera**: keys 1, 2, 3 for front, top and side views; Alt+arrows hop between neighbours; `?` on the canvas lists every shortcut. Filters, search, selection and camera come back when Obsidian reopens the view.
-- **Export**: the PNG button (or command) saves the view as an image in the vault; "Make canvas" saves the selection as a `.canvas`.
-- **Replay scrubber**: drag the slider to jump to any point of the growth.
-- **Saved views**: name the current filters and search, save them, pick them again from the Filters panel (up to 20, kept in the plugin's data).
-- **Pin**: the Pin button in a page's panel holds it in place (kept between sessions).
-- **Log filter**: show only pages a `wiki/log.md` operation (ingest, query, lint...) touched, matched by page name in the entry title.
-- **Replay from a date**: pick a date next to the replay controls; older pages are already there and the rest grow in.
-- **Explorer hover**: hovering a file in the file explorer lights its neuron (a setting turns it off).
-- **First-use card**: a short note on how to read the brain, shown once.
-- **Replay loop**: tick the box next to the replay speed to start over when it finishes.
-- **Opens as you left it**: neuron positions are saved, so the brain does not re-settle on every start.
-- Works on desktop and mobile. No network access, no telemetry, no dependencies. Pauses when the pane is hidden and lowers detail when frames get slow.
+[Quick start](#quick-start) · [What you see](#what-you-see) · [The neuron model](#the-neuron-model) · [Selecting](#selecting-and-the-details-panel) · [Search](#search) · [Filters](#filters) · [Growth: Flow and Replay](#growth-flow-and-replay) · [Color, size and legend](#color-size-and-legend) · [Export](#export) · [Keyboard and mouse](#keyboard-and-mouse) · [Commands](#commands) · [Settings](#settings) · [Languages](#languages) · [Performance](#performance) · [Install](#install) · [Development](#development)
 
-## Languages
+## Quick start
 
-English (default), Portuguese (Brazil), Spanish and French. The plugin follows Obsidian's own language; pick another one in the plugin settings (Language). Other Obsidian languages show English. To add a language, copy a block in `src/i18n.ts`; the tests check that every key and every `{placeholder}` is present.
+1. Click the brain icon in the ribbon, or run the command **Open brain view**.
+2. Drag to rotate, scroll to zoom, click a neuron to see its inputs and outputs, double-click to open the note.
+3. Type in the search box to dim everything that does not match; press `Enter` to **ask**, and the answer spreads along the links.
+4. Press `?` on the canvas for every shortcut, and the `?` next to the search box for the search syntax.
 
-## Page types
+A short card explains the picture the first time you open the view.
 
-The type comes from, in order: the `type` frontmatter field (`source`, `entity`, `concept`, `synthesis`), a parent folder with one of those names, or a stable guess from the folder name.
+## What you see
+
+- **A brain made of your notes.** Linked pages share a region (lobe) of the brain, so clusters of related notes sit together. The soft cloud behind the neurons shows the brain's volume; neurons spread through all of it, also when there are only a few.
+- **Neurons, not dots.** A cell body pulled toward its main dendrites, branches that narrow and fork, an axon with terminal boutons. Busy pages grow extra dendrites. One color per page type: source, entity, concept, synthesis.
+- **Status line** at the bottom: visible pages, links, orphans, broken links, and a note when the page limit left some pages out.
+- **Active filters** appear as removable chips under the search box, and the Filters button shows how many are on.
+
+The type of a page comes from, in order: the `type` frontmatter field (`source`, `entity`, `concept`, `synthesis`), a parent folder with one of those names, or a stable guess from the folder name.
+
+## The neuron model
+
+A link is a synapse, and the picture follows the biology:
+
+- **Direction.** A link leaves through the **axon** of the page that holds it and lands on a **dendrite** of the page it points to. Signals only travel that way (both ways if the two pages link each other). The panel of a page lists its **inputs** (pages that link here) and **outputs** (pages it links to).
+- **Integrate and fire.** Each page adds up what arrives, leaks charge over time, and fires all-or-nothing at a threshold that grows with its number of inputs. The arc around the cell body shows how close it is to firing.
+- **Ask follows the links.** A search answer spreads along outgoing links; a page fed by several matches fires. Links used together grow stronger and fade when idle.
+- **Inhibition.** A frontmatter link under `contradicts`, `contradiz`, `contradice`, `contredit`, `conflicts`, `refutes` or `disputes` inhibits: its spikes are red and lower the target's charge instead of raising it.
+- **Myelin.** Links between busy pages conduct faster, in jumps like the nodes of Ranvier.
+- **Attention.** The **Attention** button in a page's panel shows, for a moment, the most similar pages it does *not* link to (dashed arcs, brighter means heavier weight).
+- **Ambient signals** keep traveling along links so the brain feels alive (off, calm or lively in the settings).
+
+## Selecting and the details panel
+
+- **Click** selects a page and keeps it selected; click empty space or press `Esc` to clear. Opening a note in Obsidian selects and centers its neuron (a setting turns this off).
+- **Several pages:** `Cmd/Ctrl`+click adds or removes a page, `Alt`+drag draws a rectangle that selects what is inside, `Alt`+click on the cloud selects a whole lobe. A group gets a dashed outline and a counter ("12 pages · 31 links · 3 orphans").
+- **Actions on a group:** isolate it, copy it as `[[links]]`, make an Obsidian Canvas of it, and, with exactly two pages, play the route between them.
+- **Panel of one page:** type, dates (and "3 d ago"), path, a warning if the page has broken links, then **Open**, **Open to the side**, **Flow from index**, **Only neighbourhood**, **Pin**, **Attention**, **Copy link**; collapsible lists of inputs, outputs and frontmatter properties.
+- **Neighbourhood:** show only the page and the pages within 1 to 3 links (the depth is a filter).
+- **Pin** holds a page where it is; pins are kept between sessions.
+- **Right-click** opens a menu (open, open to the side, copy link, pin, neighbourhood, attention, flow; on a group also isolate and canvas; on empty space reset view, clear filters, export image).
+- **Hover** shows a card (type, inputs, outputs, last edit) and, if you keep the setting on, the note preview from the core Page Preview plugin with its usual modifier key. Hovering a file in Obsidian's **file explorer** lights its neuron (a setting turns it off).
+- The page in focus gets a halo on its neighbours; pages edited in the last day can carry a dashed ring (option in the Filters panel).
+
+## Search
+
+Type to highlight matches and dim the rest. `Enter` asks (the answer spreads along the links); `Enter` again, or `›` / `‹`, walks the matches with the camera; `Esc` clears. A clickable list shows the first results, **Copy** puts all of them on the clipboard as `[[links]]`, and "Hide pages that do not match the search" in the Filters panel removes the rest instead of dimming. Suggestions complete the search as you type, and the last 12 searches asked with `Enter` are remembered.
+
+| Syntax | Meaning |
+|---|---|
+| `words` | every word must appear in the name, path, headings or tags |
+| `path:` `file:` `tag:` `type:` `heading:` | restrict a term (`tag:` also matches nested tags: `tag:wiki` finds `#wiki/llm`) |
+| `-term` | exclude |
+| `"a phrase"`, `path:"my folder"` | keep words together |
+| `a or b` | either side (each side is an AND of its terms) |
+| `links:>3`, `links:0`, `<`, `<=`, `>=`, `=` | number of links |
+| `created:<7d`, `edited:>30d`, `edited:>2026-01-01` | age (`d`, `w`, `m`, `y`) or a date |
+| `edited:today`, `week`, `month`, `year` | also `hoje`, `semana`, `hoy`, `aujourd'hui`, and so on |
+| `prop:status=draft`, `prop:author~ana`, `prop:status` | frontmatter: equals, contains, exists |
+| `is:orphan` `is:broken` `is:untyped` `is:index` `is:log` `is:hub` | page state (a hub has 8 or more links) |
+| `to:name`, `from:name` | links to a page / is linked from a page |
+| `/regex/` | regular expression on name, path, headings and tags |
+
+With no match, a single word falls back to fuzzy file names (`kvcch` finds `kv-cache`). The `?` button next to the search box shows these with examples you can click.
+
+## Filters
+
+The **Filters** button opens the panel (a live line says "Showing N of M"):
+
+- type chips (top row), folder and tag (with counts), log operation
+- **direction:** sources (nothing links here), sinks (link nowhere), busy both ways
+- minimum and maximum links, edited in the last N days, created in the last N days, orphans only
+- **filter query:** any search syntax, applied as a filter (for example `tag:ai -is:orphan prop:status=draft`)
+- neighbourhood depth (1 to 3) and **invert** (show what the other filters would hide)
+- **hidden pages as faint dots**, so you still see where the filtered pages are
+- **Clear filters**, and a ✕ button right after the search box that clears the filters and the search in one click
+- **Saved views:** name the current filters and search, save them, pick them again (up to 20)
+
+Filters, search, selection and camera are saved with the pane, so the view comes back as you left it. The **log filter** shows only the pages a `wiki/log.md` operation (ingest, query, lint…) touched, matched by page name in the entry title.
+
+## Growth: Flow and Replay
+
+- **Flow** sends a packet from the index along the shortest chain of links to the latest created (or edited) page, with a trail and a pulse per hop. If the page has no link from the index yet, a dashed arc shows where the link is missing. Use **Flow from index** on any selected page, "stay in view" to route only through visible pages, and "Flow to new pages" to send one automatically when you create a page.
+- **Replay** empties the brain and the pages return in creation order (or by last edit), each fed from the index. Pause, speed 0.5× to 4×, loop, **start from a date**, and drag the **scrubber** to jump to any point. A caption shows the date, the progress and the operations `wiki/log.md` recorded that day. If file dates are all the same (a vault restored from Git or iCloud), the log's dates place the pages.
+- **Lint** rings orphan pages, pages with broken links and pages without a type, with a clickable list.
+
+## Color, size and legend
+
+In the Filters panel: **Color by** type (default), folder, tag, age or links, and **Size by** links or recency. A legend in the corner names the four colors. Neuron detail (settings): Auto lowers detail when frames get slow, High keeps full neurons, Simple draws spheres.
+
+## Export
+
+- **PNG** button (or the command) saves what the view shows as `brain-<date>.png` in the vault root.
+- **Make canvas** (group actions or the command) saves the selected notes as an Obsidian Canvas, laid out as the brain shows them, with the links between them as arrows.
+
+## Keyboard and mouse
+
+| Input | Action |
+|---|---|
+| drag · `Shift`+drag or right-drag · wheel · pinch | rotate · pan · zoom at the cursor · zoom on touch |
+| arrows · `+` `-` · `0` | rotate · zoom · reset the camera |
+| `1` `2` `3` | front, top and side views |
+| `n` `p` or `]` `[` | next / previous hub |
+| `Alt`+arrows | hop to the neighbour in that direction |
+| `Enter` · `Cmd/Ctrl`+`Enter` · double-click | open the selected note · open to the side |
+| `Esc` | clear the selection |
+| `f` | full screen |
+| `?` | list the shortcuts |
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| Open brain view | opens the view (also the ribbon icon) |
+| Ask the brain | asks a question; matching pages light up and the answer spreads |
+| Send information from the index to the latest page | Flow |
+| Replay the wiki growing in creation order | Replay |
+| Run wiki lint overlay | Lint |
+| Clear highlights | clears marks, waves and routes |
+| Focus the search box | jumps to the search |
+| Clear filters and search | resets every filter |
+| Save the view as an image | PNG export |
+| Make a canvas from the selection | Canvas export |
 
 ## Settings
 
-- **Wiki folder** (default `wiki`): only pages inside it become neurons. Empty means the whole vault.
-- **Maximum pages** (default 800): larger vaults keep the most connected pages and the index.
-- **Ambient signals**, **Flow speed**, **Flow target**, **Flow stays in view**, **Flow to new pages**.
-- **Reduce motion**: settle the layout instantly and stop the slow rotation.
+- **Language:** Auto (follows Obsidian), English, Portuguese (Brazil), Spanish, French.
+- **Wiki folder** (default `wiki`): only pages inside it become neurons; empty means the whole vault. A warning appears if the folder has no notes.
+- **Maximum pages** (default 800, up to 10,000): larger vaults keep the most connected pages and the index, and the status line says how many were left out.
+- **Ambient signals** (off, calm, lively), **Flow speed**, **Flow target** (latest created or edited), **Flow stays in view**, **Flow to new pages**.
+- **Neuron detail** (Auto, High, Simple), **Follow the open note**, **Preview on hover**, **Light up on file explorer hover**.
+- **Label size**, **Show performance** (frames per second and quality in the status bar), **Reduce motion** (settle the layout instantly and stop the slow rotation).
+
+## Languages
+
+English (default), Portuguese (Brazil), Spanish and French. The plugin follows Obsidian's language; pick another in the settings. Other Obsidian languages show English. To add a language, copy a block in `src/i18n.ts`; the tests check that every key and every `{placeholder}` is present.
+
+## Performance
+
+Canvas 2D, no WebGL, no worker, no network, no telemetry, no dependencies. Measured on a synthetic vault (see [docs/benchmark.md](docs/benchmark.md)): at 10,000 pages a frame takes about 25 to 33 ms and a physics step 55 to 70 ms. It stays smooth by drawing full neurons only for the biggest ones on screen, links as straight lines past 3,500, and by lowering detail when frames get slow (Neuron detail: Auto). The view pauses when it is hidden. Neuron positions are saved, so the brain does not re-settle on every start. It works on desktop and mobile (touch: drag, pinch).
 
 ## Install
 
-From the community directory: Settings → Community plugins → Browse → search "LLM Wiki Brain".
-
 Beta with [BRAT](https://github.com/TfTHacker/obsidian42-brat): add `jonyfs/llm-wiki-brain`.
 
-Manual: download `main.js`, `manifest.json` and `styles.css` from the latest release into `<vault>/.obsidian/plugins/llm-wiki-brain/`.
+Manual: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/jonyfs/llm-wiki-brain/releases/latest) into `<vault>/.obsidian/plugins/llm-wiki-brain/`, then enable the plugin in Settings → Community plugins.
+
+The plugin is not in the community directory yet.
 
 ## Development
 
@@ -74,10 +161,12 @@ Manual: download `main.js`, `manifest.json` and `styles.css` from the latest rel
 npm install
 npm run dev     # watch build
 npm run build   # type-check and production build
-npm test        # route finder and lobe assignment tests
+npm test        # pure modules: search, filters, physics, neuron model, i18n, ...
 ```
 
-Release: bump the version with `npm version patch|minor|major`, push the tag; the GitHub Action attaches `main.js`, `manifest.json` and `styles.css`.
+`scripts/harness` runs the real engine in a browser on a synthetic vault (see its README). `docs/RELEASE-CHECKLIST.md` is the manual check to run in a real Obsidian before a release.
+
+Release: bump `version` in `manifest.json`, `package.json` and `package-lock.json`, add it to `versions.json`, push the commit and the tag; the GitHub Action runs the build and attaches `main.js`, `manifest.json` and `styles.css`.
 
 ## Credits
 
