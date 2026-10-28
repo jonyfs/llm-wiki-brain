@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { HoverPopover, ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
 import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
@@ -21,6 +21,7 @@ const IDLE_TIP = "Drag to rotate, scroll to zoom, click to select, double-click 
 
 export class BrainView extends ItemView {
 	engine: BrainEngine | null = null;
+	hoverPopover: HoverPopover | null = null;
 	private graph: VaultGraph | null = null;
 	private filters: Filters = { ...DEFAULT_FILTERS };
 	private tip!: HTMLElement;
@@ -107,7 +108,7 @@ export class BrainView extends ItemView {
 		btn("Full", "Toggle full screen", () => this.toggleFullscreen());
 
 		const searchRow = root.createDiv({ cls: "llm-wiki-brain-search" });
-		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: "Search pages, tags, headings. Enter to ask.", "aria-label": "Search pages" } });
+		this.search = searchRow.createEl("input", { type: "search", attr: { placeholder: "Search: words, path:, file:, tag:, type:, -not. Enter to ask.", "aria-label": "Search pages" } });
 		let timer = 0;
 		this.search.addEventListener("input", () => {
 			window.clearTimeout(timer);
@@ -196,11 +197,19 @@ export class BrainView extends ItemView {
 			reducedMotion: reduced,
 			ambient: () => ({ off: 0, calm: 1, lively: 2 })[this.plugin.settings.ambient],
 			flowSpeed: () => ({ slow: 0.6, normal: 1, fast: 1.6 })[this.plugin.settings.flowSpeed],
+			detail: () => this.plugin.settings.neuronDetail,
 			onOpen: (path) => this.openNote(path),
-			onHover: (path) => this.tip.setText(path ?? IDLE_TIP),
+			onHover: (path, ev) => {
+				this.tip.setText(path ?? IDLE_TIP);
+				// The core Page Preview shows the note, with its usual modifier key.
+				if (path && ev && this.plugin.settings.hoverPreview) {
+					this.app.workspace.trigger("hover-link", { event: ev, source: VIEW_TYPE_BRAIN, hoverParent: this, targetEl: this.contentEl, linktext: path });
+				}
+			},
 			onSelect: (info) => this.showInfo(info),
 			onStatus: (msg) => this.status.setText(msg),
 			onFullscreen: () => this.toggleFullscreen(),
+			onSettled: () => this.plugin.saveLayout(this.engine?.layout() ?? {}),
 		});
 		this.rotateBtn.setAttribute("aria-pressed", String(this.engine.isAuto()));
 		this.registerEvent(this.app.workspace.on("css-change", () => this.engine?.readTheme()));
@@ -245,7 +254,7 @@ export class BrainView extends ItemView {
 		const log = await this.plugin.readLog();
 		if (!this.engine) return;
 		this.graph = buildVaultGraph(this.app, this.plugin.settings, log);
-		this.engine.setGraph(this.graph.pages, this.graph.links);
+		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout);
 		for (const t of this.filters.hidden) this.engine.setHidden(t, true);
 		this.fillSelects();
 		this.syncChips();
@@ -390,6 +399,11 @@ export class BrainView extends ItemView {
 
 	pulse(path: string): void {
 		this.engine?.pulse(path);
+	}
+
+	/** The note that just opened becomes the selection and the camera goes to it. */
+	followFile(path: string): void {
+		if (this.plugin.settings.followActiveNote) this.engine?.selectPath(path, true);
 	}
 
 	/** Lint overlay: orphans, broken links and pages without a type, with a clickable list. */

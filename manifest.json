@@ -1,7 +1,7 @@
 {
   "id": "llm-wiki-brain",
   "name": "LLM Wiki Brain",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minAppVersion": "1.5.0",
   "description": "See your wiki as a living 3D brain: pages are neurons, links are synapses, and edits, searches and lint results light it up.",
   "author": "jonyfs",

@@ -88,3 +88,28 @@ export function edgeCurve(A: ArrayLike<number>, o: number, fwd: boolean, bend: n
 	const tb = L * (0.08 + 0.34 * clamp(-(A[b + 2] * ux + A[b + 3] * uy), 0, 1));
 	return [x0, y0, x0 + A[a + 2] * ta + px * k, y0 + A[a + 3] * ta + py * k, x1 + A[b + 2] * tb + px * k, y1 + A[b + 3] * tb + py * k, x1, y1];
 }
+
+/**
+ * The direction (unit vector, in the cell's own frame) with the most room around it: the one farthest from every
+ * dendrite. The axon leaves there, so it never runs through a branch.
+ */
+export function freeDirection(den: Den[], samples = 64): [number, number, number] {
+	const units = den.map((d) => {
+		const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
+		return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
+	});
+	let best: [number, number, number] = [0, 1, 0], bs = -1;
+	const g = Math.PI * (3 - Math.sqrt(5)); // golden angle: evenly spread points on the sphere
+	for (let i = 0; i < samples; i++) {
+		const y = 1 - (2 * (i + 0.5)) / samples, r = Math.sqrt(1 - y * y), th = g * i;
+		const v: [number, number, number] = [Math.cos(th) * r, y, Math.sin(th) * r];
+		let nearest = 2; // angle to the closest dendrite (as 1 - cos, bigger = farther)
+		for (const u of units) nearest = Math.min(nearest, 1 - (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+		if (units.length === 0) nearest = 1;
+		if (nearest > bs) {
+			bs = nearest;
+			best = v;
+		}
+	}
+	return best;
+}

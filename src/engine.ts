@@ -3,7 +3,8 @@
    (index to page packets, ask waves, replay), persistent selection and filters. */
 import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { assignPorts as assignPortsPure, edgeCurve, growDendrites } from "./ports";
+import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
+import { quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
 
@@ -47,11 +48,13 @@ export interface EngineOptions {
 	reducedMotion: boolean;
 	ambient: () => number; // 0 off, 1 calm, 2 lively
 	flowSpeed: () => number; // 0.6 slow, 1 normal, 1.6 fast
+	detail: () => "auto" | "high" | "simple"; // auto adapts to frame time, high keeps full neurons, simple keeps spheres
 	onOpen: (path: string) => void;
-	onHover: (path: string | null) => void;
+	onHover: (path: string | null, ev?: PointerEvent) => void;
 	onSelect: (info: NodeInfo | null) => void;
 	onStatus: (msg: string) => void;
 	onFullscreen: () => void;
+	onSettled?: () => void; // the layout stopped moving: a good moment to save it
 }
 
 interface Cell {
@@ -88,6 +91,7 @@ interface Cell {
 	pd: number;
 	den: Dendrite[];
 	port: number[]; // how many links leave through each dendrite
+	axon: number[]; // unit direction (cell frame) with the most room, where the axon leaves
 }
 
 // a, b, bend, crosses the midline, dendrite used at a, dendrite used at b
@@ -158,7 +162,7 @@ function mix(h: string, t: number[], amt: number): string {
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
 }
 
-function makeSprite(color: string, glow: number): HTMLCanvasElement {
+function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement {
 	const S = 96;
 	const c = document.createElement("canvas");
 	c.width = c.height = S;
@@ -169,6 +173,7 @@ function makeSprite(color: string, glow: number): HTMLCanvasElement {
 	gl.addColorStop(1, "rgba(" + rgb + ",0)");
 	g.fillStyle = gl;
 	g.fillRect(0, 0, S, S);
+	if (!core) return c;
 	const b = g.createRadialGradient(S / 2 - S * 0.07, S / 2 - S * 0.08, S * 0.015, S / 2, S / 2, S * 0.22);
 	b.addColorStop(0, mix(color, [255, 255, 255], 0.6));
 	b.addColorStop(0.55, color);
@@ -243,6 +248,10 @@ export class BrainEngine {
 	private ro: ResizeObserver;
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private somaStops: Partial<Record<PageType, string[]>> = {};
+	private boutonColor = "rgb(230,255,251)";
+	private light = false;
 	private palRGB: Partial<Record<PageType, string>> = {};
 	private pal = COLORS.dark;
 	private ghost: HTMLCanvasElement | null = null;
@@ -289,7 +298,7 @@ export class BrainEngine {
 	/* ---------- Data ---------- */
 
 	/** Replace the graph, keeping the position of pages that already exist so the brain does not jump. */
-	setGraph(pages: GraphNode[], links: [string, string][]): void {
+	setGraph(pages: GraphNode[], links: [string, string][], saved?: Record<string, number[]>): void {
 		const old = this.byPath;
 		const next: Cell[] = [];
 		const byPath = new Map<string, Cell>();
@@ -332,11 +341,13 @@ export class BrainEngine {
 			const lobe = nearCell ? nearCell.lobe : fresh ? lobeOf[pi] : this.lobeFor(r);
 			let pos = this.pointIn(lobe, r);
 			if (nearCell) pos = [nearCell.x + (r() - 0.5) * 30, nearCell.y + (r() - 0.5) * 30, nearCell.z + (r() - 0.5) * 30];
+			const kept = saved?.[p.path];
+			if (kept && kept.length >= 3) pos = [kept[0], kept[1], kept[2]]; // where it was left last time
 			next.push({
 				id: 0, path: p.path, label: p.label, type: p.type, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [],
+				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], axon: [0, 1, 0],
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -367,7 +378,8 @@ export class BrainEngine {
 			nb.adj.push(na.id);
 		}
 		this.applyVisibility();
-		this.alpha = this.opts.reducedMotion ? 0 : 0.6;
+		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
+		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
 		if (this.opts.reducedMotion) for (let s = 0, a = 1; s < 220; s++, a *= 0.985) this.simStep(a);
 		this.assignPorts();
 		this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
@@ -438,6 +450,13 @@ export class BrainEngine {
 		this.matchActive = paths !== null;
 		for (const n of this.nodes) n.match = paths !== null && paths.has(n.path);
 		this.start();
+	}
+
+	/** Where every neuron is, for saving. */
+	layout(): Record<string, number[]> {
+		const out: Record<string, number[]> = {};
+		for (const n of this.nodes) out[n.path] = [n.x, n.y, n.z];
+		return out;
 	}
 
 	counts(): Record<PageType, number> {
@@ -704,6 +723,7 @@ export class BrainEngine {
 			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
 			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
 		});
+		for (const n of this.nodes) n.axon = freeDirection(n.den);
 		this.portsDirty = false;
 	}
 
@@ -781,8 +801,12 @@ export class BrainEngine {
 		this.bgColor = cs.getPropertyValue("--background-primary").trim() || (light ? "#fff" : "#0d1017");
 		this.warnColor = light ? "#b45309" : "#f59e0b";
 		this.ghostAlpha = light ? 0.7 : 0.55;
+		this.light = light;
+		this.boutonColor = light ? "rgb(30,40,60)" : "rgb(230,255,251)";
 		for (const t of TYPES) {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.22 : 0.4);
+			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.22 : 0.4, false);
+			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
 			this.palRGB[t] = hexToRgb(this.pal[t]).join(",");
 		}
 		this.ghost = makeGhost(this.edgeRGB);
@@ -823,7 +847,7 @@ export class BrainEngine {
 					const h = this.pick(e);
 					if (h !== this.hovered) {
 						this.hovered = h;
-						this.opts.onHover(h >= 0 ? this.nodes[h].path : null);
+						this.opts.onHover(h >= 0 ? this.nodes[h].path : null, e);
 						c.style.cursor = h >= 0 ? "pointer" : "";
 						this.start();
 					}
@@ -989,17 +1013,24 @@ export class BrainEngine {
 	}
 
 	private tune(ms: number): void {
+		const mode = this.opts.detail();
+		if (mode !== "auto") {
+			this.quality = mode === "high" ? 2 : 0;
+			this.ema = ms;
+			this.frameMs = ms;
+			return;
+		}
 		this.ema = this.ema * 0.9 + ms * 0.1;
 		this.frameMs = this.ema;
 		this.frames++;
 		if (this.frames % 20) return;
-		if (this.ema > 13) {
+		if (this.ema > 18) { // over ~55 fps: give up detail, spines and the axon first
 			this.fast = 0;
 			if (++this.slow >= 2 && this.quality > 0) {
 				this.quality--;
 				this.slow = 0;
 			}
-		} else if (this.ema < 5) {
+		} else if (this.ema < 9) {
 			this.slow = 0;
 			if (++this.fast >= 10 && this.quality < 2) {
 				this.quality++;
@@ -1024,7 +1055,10 @@ export class BrainEngine {
 			this.portsDirty = true;
 		} else {
 			this.alpha = 0;
-			if (this.portsDirty) this.assignPorts(); // the layout settled: re-aim every link at the nearest free branch
+			if (this.portsDirty) {
+				this.assignPorts(); // the layout settled: re-aim every link at the nearest free branch
+				this.opts.onSettled?.();
+			}
 		}
 		if (!this.dragging) {
 			if (Math.abs(this.vyaw) > 1e-4 || Math.abs(this.vpitch) > 1e-4) {
@@ -1270,9 +1304,16 @@ export class BrainEngine {
 			const al = clamp((1 - n.pd * 0.62) * (dim ? 0.16 : 1), 0.05, 1), size = n.pr * 4.55;
 			ctx.globalAlpha = 1;
 			if (!lowDetail) this.drawDendrites(n, al * 0.65);
+			if (!lowDetail && this.quality > 1 && n.pr > 6 * dpr) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
-			const sp = this.sprites[n.type];
-			if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+			if (this.quality > 0 && n.pr > 4.5 * dpr) {
+				const gl = this.glowSprites[n.type];
+				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
+				this.drawSoma(n, al);
+			} else {
+				const sp = this.sprites[n.type];
+				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+			}
 			if (n.pulse > 0 && this.quality > 0) {
 				ctx.globalAlpha = n.pulse * 0.5 * al;
 				ctx.lineWidth = dpr;
@@ -1369,42 +1410,166 @@ export class BrainEngine {
 		ctx.globalAlpha = 1;
 	}
 
-	/** Branches that carry a link are drawn bright and end in a bouton; free branches stay faint, ready for the next link. */
+	/** The cell body: not a circle, but pulled out toward each main dendrite, with a lit rim and a darker nucleus. */
+	private drawSoma(n: Cell, al: number): void {
+		const ctx = this.ctx, dpr = this.dpr, R = n.pr, N = 22;
+		const angles: number[] = [];
+		for (let i = 0; i < Math.min(5, n.den.length); i++) {
+			const [x, y] = this.rotv(n.den[i].t);
+			angles.push(Math.atan2(y, x));
+		}
+		const k = somaRadii(angles, N);
+		const px: number[] = [], py: number[] = [];
+		for (let i = 0; i < N; i++) {
+			const th = (i / N) * 2 * Math.PI;
+			px.push(n.px + Math.cos(th) * R * k[i]);
+			py.push(n.py + Math.sin(th) * R * k[i]);
+		}
+		ctx.beginPath();
+		ctx.moveTo((px[0] + px[N - 1]) / 2, (py[0] + py[N - 1]) / 2);
+		for (let i = 0; i < N; i++) {
+			const j = (i + 1) % N;
+			ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
+		}
+		ctx.closePath();
+		const st = this.somaStops[n.type] ?? ["#fff", "#888", "#000"];
+		const g = ctx.createRadialGradient(n.px - R * 0.25, n.py - R * 0.3, R * 0.05, n.px, n.py, R * 1.25);
+		g.addColorStop(0, st[0]);
+		g.addColorStop(0.45, st[1]);
+		g.addColorStop(1, st[2]);
+		ctx.globalAlpha = al;
+		ctx.fillStyle = g;
+		ctx.fill();
+		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07);
+		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.55)" : "rgba(220,255,250,0.8)";
+		ctx.stroke();
+		if (R > 7 * dpr) { // nucleus
+			ctx.globalAlpha = al * 0.35;
+			ctx.fillStyle = this.light ? "rgb(255,255,255)" : "rgb(10,70,62)";
+			ctx.beginPath();
+			ctx.ellipse(n.px + R * 0.1, n.py + R * 0.05, R * 0.42, R * 0.36, 0, 0, 6.2832);
+			ctx.fill();
+		}
+		ctx.globalAlpha = 1;
+	}
+
+	/** Branches narrow along their length; those that carry a link are bright and end in a bouton, free ones stay faint. */
 	private drawDendrites(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr;
 		if (!this.denVisible(n)) return;
-		const k = this.denScale(n), col = this.palRGB[n.type], bw = Math.max(0.9 * dpr, n.pr * 0.16);
-		ctx.lineCap = "round";
+		const k = this.denScale(n), col = this.palRGB[n.type] ?? "255,255,255";
+		const real = this.quality > 1 && n.pr > 6 * dpr; // spines and branch forks only when the cell is big enough to show them
+		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1);
 		for (const used of [false, true]) {
-			const a = used ? Math.min(1, al * 1.5) : al * 0.5, tips: number[] = [];
-			ctx.strokeStyle = "rgba(" + col + "," + a + ")";
-			ctx.lineWidth = Math.max(0.7 * dpr, n.pr * 0.1) * (used ? 1.25 : 1);
+			const a = used ? Math.min(1, al * 1.5) : al * 0.5, tips: number[] = [], spines: number[] = [], forks: number[] = [];
+			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
 			for (let i = 0; i < n.den.length; i++) {
 				if ((n.port[i] ?? 0) > 0 !== used) continue;
 				const d = n.den[i];
 				const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
 				const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
-				ctx.moveTo(n.px, n.py);
-				ctx.quadraticCurveTo(mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty);
+				const pts = quadPoints(n.px, n.py, mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty, real ? 7 : 4);
+				const poly = taperStrip(pts, w0, w1);
+				ctx.moveTo(poly[0], poly[1]);
+				for (let j = 2; j < poly.length; j += 2) ctx.lineTo(poly[j], poly[j + 1]);
+				ctx.closePath();
+				if (real) {
+					const sl = Math.max(1.4 * dpr, n.pr * 0.22);
+					for (let j = 3; j < pts.length / 2 - 1; j += 2) { // a spine every other point, alternating sides
+						const dx = pts[j * 2 + 2] - pts[j * 2 - 2], dy = pts[j * 2 + 3] - pts[j * 2 - 1], l = Math.hypot(dx, dy) || 1;
+						const side = ((i * 7 + j) & 1) * 2 - 1;
+						spines.push(pts[j * 2], pts[j * 2 + 1], pts[j * 2] - (dy / l) * sl * side, pts[j * 2 + 1] + (dx / l) * sl * side);
+					}
+				}
 				tips.push(tx, ty);
-				if (d.b && this.quality > 1 && !used) {
+				if (d.b && real && !used) {
 					const [r3x, r3y] = this.rotv(d.b);
-					ctx.moveTo(mx, my);
-					ctx.lineTo(n.px + r3x * k, n.py + r3y * k);
+					forks.push(mx, my, n.px + r3x * k, n.py + r3y * k);
 					tips.push(n.px + r3x * k, n.py + r3y * k);
 				}
 			}
-			ctx.stroke();
-			ctx.fillStyle = "rgba(" + col + "," + a + ")";
+			ctx.fill();
+			if (spines.length || forks.length) {
+				ctx.strokeStyle = "rgba(" + col + "," + a + ")";
+				ctx.lineCap = "round";
+				ctx.lineWidth = Math.max(0.6 * dpr, n.pr * 0.06);
+				ctx.beginPath();
+				for (let i = 0; i < spines.length; i += 4) {
+					ctx.moveTo(spines[i], spines[i + 1]);
+					ctx.lineTo(spines[i + 2], spines[i + 3]);
+				}
+				for (let i = 0; i < forks.length; i += 4) {
+					ctx.moveTo(forks[i], forks[i + 1]);
+					ctx.lineTo(forks[i + 2], forks[i + 3]);
+				}
+				ctx.stroke();
+			}
+			const rr = Math.max(0.9 * dpr, n.pr * 0.14) * (used ? 1.3 : 0.8);
+			if (used && real) { // the bouton: a glow, then a bright core
+				ctx.fillStyle = "rgba(" + col + ",0.35)";
+				ctx.beginPath();
+				for (let i = 0; i < tips.length; i += 2) {
+					ctx.moveTo(tips[i] + rr * 2, tips[i + 1]);
+					ctx.arc(tips[i], tips[i + 1], rr * 2, 0, 6.2832);
+				}
+				ctx.fill();
+			}
+			ctx.fillStyle = used ? this.boutonColor : "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
-			const r = bw * (used ? 1.5 : 1);
 			for (let i = 0; i < tips.length; i += 2) {
-				ctx.moveTo(tips[i] + r, tips[i + 1]);
-				ctx.arc(tips[i], tips[i + 1], r, 0, 6.2832);
+				ctx.moveTo(tips[i] + rr, tips[i + 1]);
+				ctx.arc(tips[i], tips[i + 1], rr, 0, 6.2832);
 			}
 			ctx.fill();
 		}
+	}
+
+	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
+	private drawAxon(n: Cell, al: number): void {
+		const ctx = this.ctx, dpr = this.dpr, R = n.pr;
+		const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
+		if (l < 0.3) return; // pointing at the viewer: foreshortened to nothing
+		const col = this.palRGB[n.type] ?? "255,255,255", ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
+		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
+		ctx.fillStyle = "rgba(" + col + "," + al * 0.8 + ")"; // hillock
+		ctx.beginPath();
+		ctx.moveTo(n.px + ux * R * 0.9 + qx * R * 0.3, n.py + uy * R * 0.9 + qy * R * 0.3);
+		ctx.lineTo(n.px + ux * R * 0.9 - qx * R * 0.3, n.py + uy * R * 0.9 - qy * R * 0.3);
+		ctx.lineTo(hx, hy);
+		ctx.closePath();
+		ctx.fill();
+		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
+		ctx.strokeStyle = "rgba(" + col + "," + al * 0.6 + ")";
+		ctx.lineCap = "round";
+		ctx.lineWidth = Math.max(0.7 * dpr, R * 0.1);
+		ctx.beginPath();
+		ctx.moveTo(hx, hy);
+		ctx.quadraticCurveTo(cx, cy, ex, ey);
+		const t = 0.72, u = 1 - t, bx = u * u * hx + 2 * u * t * cx + t * t * ex, by = u * u * hy + 2 * u * t * cy + t * t * ey;
+		const ends: number[] = [ex, ey];
+		for (const s of [-1, 1]) {
+			const tx = bx + ux * R * 1.2 + qx * R * 1.1 * s, ty = by + uy * R * 1.2 + qy * R * 1.1 * s;
+			ctx.moveTo(bx, by);
+			ctx.quadraticCurveTo(bx + ux * R * 0.5 + qx * R * 0.2 * s, by + uy * R * 0.5 + qy * R * 0.2 * s, tx, ty);
+			ends.push(tx, ty);
+		}
+		ctx.stroke();
+		const rr = Math.max(1.1 * dpr, R * 0.14);
+		ctx.fillStyle = "rgba(" + col + ",0.35)";
+		ctx.beginPath();
+		for (let i = 0; i < ends.length; i += 2) {
+			ctx.moveTo(ends[i] + rr * 2, ends[i + 1]);
+			ctx.arc(ends[i], ends[i + 1], rr * 2, 0, 6.2832);
+		}
+		ctx.fill();
+		ctx.fillStyle = this.boutonColor;
+		ctx.beginPath();
+		for (let i = 0; i < ends.length; i += 2) {
+			ctx.moveTo(ends[i] + rr, ends[i + 1]);
+			ctx.arc(ends[i], ends[i + 1], rr, 0, 6.2832);
+		}
+		ctx.fill();
 	}
 
 	private drawSignals(fn: Cell | null, f: number): void {

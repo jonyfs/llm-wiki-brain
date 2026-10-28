@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { GraphNode, PageType, TYPES } from "./engine";
 import { creationTimes } from "./logParser";
+import { matchesQuery, parseQuery } from "./query";
 
 export interface BrainSettings {
 	wikiRoot: string;
@@ -11,6 +12,9 @@ export interface BrainSettings {
 	flowTarget: "created" | "edited";
 	flowViewOnly: boolean;
 	autoFlowOnCreate: boolean;
+	neuronDetail: "auto" | "high" | "simple";
+	followActiveNote: boolean;
+	hoverPreview: boolean;
 }
 
 export const DEFAULT_SETTINGS: BrainSettings = {
@@ -22,6 +26,9 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	flowTarget: "created",
 	flowViewOnly: false,
 	autoFlowOnCreate: true,
+	neuronDetail: "auto",
+	followActiveNote: true,
+	hoverPreview: true,
 };
 
 const FOLDER_TYPES: Record<string, PageType> = {
@@ -135,11 +142,13 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	};
 }
 
-/** Pages whose name, path, tags or headings contain every word of the query. */
+/** Pages that satisfy the search box: words, path:, file:, tag:, type: and -negation. */
 export function matchQuery(graph: VaultGraph, query: string): Set<string> {
-	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const terms = parseQuery(query);
 	const out = new Set<string>();
-	if (!words.length) return out;
-	for (const [path, m] of graph.meta) if (words.every((w) => m.text.includes(w))) out.add(path);
+	for (const p of graph.pages) {
+		const m = graph.meta.get(p.path);
+		if (m && matchesQuery(terms, { path: p.path, label: p.label, tags: m.tags, type: p.type, text: m.text })) out.add(p.path);
+	}
 	return out;
 }

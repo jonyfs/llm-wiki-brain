@@ -1,6 +1,7 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, debounce } from "obsidian";
 import { BrainView, VIEW_TYPE_BRAIN } from "./view";
 import { BrainSettings, DEFAULT_SETTINGS, matchQuery, buildVaultGraph } from "./vaultGraph";
+import { Layout, pruneLayout } from "./layout";
 
 class AskModal extends Modal {
 	constructor(app: App, private onSubmit: (q: string) => void) {
@@ -29,10 +30,16 @@ class AskModal extends Modal {
 
 export default class BrainPlugin extends Plugin {
 	settings: BrainSettings = DEFAULT_SETTINGS;
+	layout: Layout = {};
+	private saveLayoutLater = debounce((l: Layout) => {
+		this.layout = pruneLayout(l, null);
+		void this.saveData({ ...this.settings, layout: this.layout });
+	}, 2500, true);
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.registerView(VIEW_TYPE_BRAIN, (leaf) => new BrainView(leaf, this));
+		this.registerHoverLinkSource(VIEW_TYPE_BRAIN, { display: "LLM Wiki Brain", defaultMod: true });
 		this.addRibbonIcon("brain", "Open LLM wiki brain", () => void this.activate());
 		this.addCommand({ id: "open", name: "Open brain view", callback: () => void this.activate() });
 		this.addCommand({
@@ -68,6 +75,9 @@ export default class BrainPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("create", (f) => {
 				if (f.path.endsWith(".md")) pending = f.path;
 			}));
+			this.registerEvent(this.app.workspace.on("file-open", (f) => {
+				if (f) this.views().forEach((v) => v.followFile(f.path));
+			}));
 			this.registerEvent(this.app.vault.on("delete", resync));
 			this.registerEvent(this.app.vault.on("rename", resync));
 		});
@@ -89,12 +99,18 @@ export default class BrainPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const { layout, ...rest } = ((await this.loadData()) ?? {}) as Partial<BrainSettings> & { layout?: Layout };
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, rest);
+		this.layout = pruneLayout(layout ?? {}, null);
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		await this.saveData({ ...this.settings, layout: this.layout });
 		this.views().forEach((v) => void v.refresh());
+	}
+
+	saveLayout(l: Layout): void {
+		this.saveLayoutLater(l);
 	}
 
 	/** wiki/log.md, or null when it does not exist or cannot be read. */
@@ -176,6 +192,33 @@ class BrainSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(this.plugin.settings.autoFlowOnCreate).onChange(async (v) => {
 					this.plugin.settings.autoFlowOnCreate = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Neuron detail")
+			.setDesc("Auto lowers the detail when frames get slow. High always draws full neurons. Simple draws plain spheres.")
+			.addDropdown((d) =>
+				d.addOptions({ auto: "Auto", high: "High", simple: "Simple" }).setValue(this.plugin.settings.neuronDetail).onChange(async (v) => {
+					this.plugin.settings.neuronDetail = v as BrainSettings["neuronDetail"];
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Follow the open note")
+			.setDesc("When you open a note, select its neuron and move the camera to it.")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.followActiveNote).onChange(async (v) => {
+					this.plugin.settings.followActiveNote = v;
+					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Preview on hover")
+			.setDesc("Show the note preview when you hover a neuron (uses the Page Preview core plugin and its modifier key).")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.hoverPreview).onChange(async (v) => {
+					this.plugin.settings.hoverPreview = v;
 					await this.plugin.saveSettings();
 				}),
 			);

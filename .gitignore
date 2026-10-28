@@ -7,3 +7,5 @@ data.json
 scripts/harness/bundle.js
 scripts/harness/bundle9.js
 scripts/harness/v9.html
+scripts/harness/bundleC*.js
+scripts/harness/vC*.html
