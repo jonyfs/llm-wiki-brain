@@ -10,6 +10,7 @@ export interface FilterSpec {
 	maxDeg: number; // at most N links (0 = no limit)
 	invert: boolean; // show what the other filters would hide
 	op: string; // only pages a log operation touched ("" = any)
+	dir: "" | "sources" | "sinks" | "hubs2"; // sources: nothing links here; sinks: links nowhere; hubs2: both ways busy
 }
 
 export interface FilterPage {
@@ -25,14 +26,18 @@ export interface FilterContext {
 	orphans: Set<string>;
 	neighbourhood: Set<string> | null;
 	opPaths?: Set<string> | null; // pages touched by `op`, when one is chosen
+	extra?: Set<string> | null; // pages that satisfy the filter query or the search in hide mode
+	isolate?: Set<string> | null; // an isolated selection
+	inDeg?: (path: string) => number;
+	outDeg?: (path: string) => number;
 	now: number;
 }
 
-export const NO_FILTER: FilterSpec = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, op: "" };
+export const NO_FILTER: FilterSpec = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, op: "", dir: "" };
 
 /** Paths to keep, or null when no filter is active (show everything). */
 export function filterPaths(pages: FilterPage[], f: FilterSpec, ctx: FilterContext): Set<string> | null {
-	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || f.op || ctx.neighbourhood)) return null;
+	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || f.op || f.dir || ctx.extra || ctx.isolate || ctx.neighbourhood)) return null;
 	const keep = new Set<string>();
 	for (const p of pages) {
 		let ok = true;
@@ -40,6 +45,11 @@ export function filterPaths(pages: FilterPage[], f: FilterSpec, ctx: FilterConte
 		else if (f.folder && p.folder !== f.folder) ok = false;
 		else if (f.tag && !p.tags.includes(f.tag)) ok = false;
 		else if (f.op && !ctx.opPaths?.has(p.path)) ok = false;
+		else if (ctx.extra && !ctx.extra.has(p.path)) ok = false;
+		else if (ctx.isolate && !ctx.isolate.has(p.path)) ok = false;
+		else if (f.dir === "sources" && (ctx.inDeg?.(p.path) ?? 0) > 0) ok = false;
+		else if (f.dir === "sinks" && (ctx.outDeg?.(p.path) ?? 0) > 0) ok = false;
+		else if (f.dir === "hubs2" && ((ctx.inDeg?.(p.path) ?? 0) < 3 || (ctx.outDeg?.(p.path) ?? 0) < 3)) ok = false;
 		else if (f.minDeg && ctx.degree(p.path) < f.minDeg) ok = false;
 		else if (f.maxDeg && ctx.degree(p.path) > f.maxDeg) ok = false;
 		else if (f.orphansOnly && !ctx.orphans.has(p.path)) ok = false;

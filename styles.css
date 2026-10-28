@@ -226,3 +226,140 @@
 	margin: 4px 0;
 	color: var(--text-muted);
 }
+
+/* Active filter chips, results list, legend, tooltip, cards */
+.llm-wiki-brain-tools.is-collapsed {
+	display: none;
+}
+.llm-wiki-brain-more {
+	margin-left: auto;
+}
+.llm-wiki-brain-active {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 2px 8px;
+}
+.llm-wiki-brain-active.is-empty {
+	display: none;
+}
+.llm-wiki-brain-achip {
+	font-size: var(--font-ui-smaller);
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: var(--background-modifier-hover);
+}
+.llm-wiki-brain-results {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	max-height: 5.5em;
+	overflow-y: auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.llm-wiki-brain-preview {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+.llm-wiki-brain-legend {
+	position: absolute;
+	right: 10px;
+	bottom: 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 8px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--background-secondary) 80%, transparent);
+	font-size: var(--font-ui-smaller);
+	pointer-events: none;
+}
+.llm-wiki-brain-legend-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.llm-wiki-brain-legend .llm-wiki-brain-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--c, var(--text-muted));
+}
+.llm-wiki-brain-tooltip {
+	position: absolute;
+	z-index: 5;
+	max-width: 220px;
+	padding: 6px 9px;
+	border-radius: 6px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-smaller);
+	pointer-events: none;
+}
+.llm-wiki-brain-card {
+	position: absolute;
+	right: 10px;
+	top: 10px;
+	z-index: 6;
+	max-width: 30em;
+	padding: 10px 14px;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+}
+.llm-wiki-brain-card p {
+	margin: 4px 0;
+	color: var(--text-muted);
+}
+.llm-wiki-brain-card-x {
+	position: absolute;
+	right: 6px;
+	top: 4px;
+}
+.llm-wiki-brain-card-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 6px;
+	margin: 3px 0;
+}
+.llm-wiki-brain-code {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+.llm-wiki-brain-warn {
+	color: var(--text-warning, #c27c0e);
+	font-size: var(--font-ui-smaller);
+}
+.llm-wiki-brain-perf {
+	margin: 0 8px;
+	color: var(--text-faint);
+}
+.llm-wiki-brain details.llm-wiki-brain-side summary {
+	cursor: pointer;
+}
+.llm-wiki-brain canvas:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+.llm-wiki-brain button {
+	min-height: 24px;
+}
+@media (max-width: 520px) {
+	.llm-wiki-brain-tools,
+	.llm-wiki-brain-search,
+	.llm-wiki-brain-bar {
+		flex-wrap: wrap;
+	}
+	.llm-wiki-brain-card {
+		left: 10px;
+		max-width: none;
+	}
+}

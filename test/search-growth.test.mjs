@@ -156,3 +156,134 @@ test("countBefore finds where a replay starts", () => {
 	assert.equal(countBefore([1, 3, 5, 7], 99), 4);
 	assert.equal(countBefore([], 5), 0);
 });
+
+import { suggest } from "../.test-build/query.mjs";
+import { activeChips, withoutChip } from "../.test-build/chips.mjs";
+import { ago } from "../.test-build/time.mjs";
+import { toCanvas } from "../.test-build/canvasExport.mjs";
+
+test("regex terms match name, path, headings and tags", () => {
+	assert.equal(m("/kv-?cache/"), true);
+	assert.equal(m("/^zzz/"), false);
+	assert.equal(m("/(unclosed/"), false); // a half-typed pattern is just no match
+});
+
+test("edited:today and friends, in four languages", () => {
+	for (const w of ["today", "hoje", "hoy", "week", "semana", "month", "mes"]) assert.ok(dateTest(w, NOW), w);
+	assert.equal(m("edited:semana"), true); // edited 2 days ago
+	assert.equal(m("edited:hoje"), false);
+	assert.equal(m("created:>mes"), true); // created 40 days ago
+});
+
+test("to: and from: follow the links", () => {
+	const p = P({ outs: ["attention", "softmax"], ins: ["index"] });
+	assert.equal(m("to:soft", p), true);
+	assert.equal(m("to:index", p), false);
+	assert.equal(m("from:index", p), true);
+	assert.equal(m("-from:index", p), false);
+});
+
+test("suggest completes keys and values", () => {
+	const vocab = { tags: ["#ai", "#wiki/llm"], folders: ["concepts", "my folder"], types: ["source", "concept"] };
+	assert.deepEqual(suggest("ta", vocab), ["tag:"]);
+	assert.deepEqual(suggest("x tag:w", vocab), ["x tag:wiki/llm"]);
+	assert.deepEqual(suggest("is:o", vocab), ["is:orphan"]);
+	assert.deepEqual(suggest("-ty", vocab), ["-type:"]);
+	assert.deepEqual(suggest("path:my", vocab), ['path:"my folder"']);
+	assert.deepEqual(suggest("", vocab), []);
+	assert.deepEqual(suggest("zzz", vocab), []);
+});
+
+test("filterPaths: direction, extra query and isolation", () => {
+	const inD = { a: 0, b: 3, c: 4 }, outD = { a: 2, b: 0, c: 5 };
+	const c2 = { ...ctx, inDeg: (p) => inD[p], outDeg: (p) => outD[p] };
+	assert.deepEqual([...filterPaths(pages, { ...NO_FILTER, dir: "sources" }, c2)], ["a"]);
+	assert.deepEqual([...filterPaths(pages, { ...NO_FILTER, dir: "sinks" }, c2)], ["b"]);
+	assert.deepEqual([...filterPaths(pages, { ...NO_FILTER, dir: "hubs2" }, c2)], ["c"]);
+	assert.deepEqual([...filterPaths(pages, NO_FILTER, { ...ctx, extra: new Set(["b", "c"]) })].sort(), ["b", "c"]);
+	assert.deepEqual([...filterPaths(pages, NO_FILTER, { ...ctx, isolate: new Set(["c"]) })], ["c"]);
+});
+
+test("activeChips lists what is on and withoutChip resets one", () => {
+	const f = { folder: "concepts", tag: "", minDeg: 2, maxDeg: 0, orphansOnly: false, days: 7, createdDays: 0, invert: true, op: "", dir: "", hidden: ["source"] };
+	const chips = activeChips(f, "wiki/a/kv-cache.md", " tag:x ", 3);
+	assert.deepEqual(chips.map((c) => c.key), ["folder", "minDeg", "days", "invert", "hidden", "hood", "extra", "isolate"]);
+	assert.equal(chips.find((c) => c.key === "hood").value, "kv-cache");
+	assert.equal(chips.find((c) => c.key === "extra").value, "tag:x");
+	assert.equal(withoutChip(f, "days").days, 0);
+	assert.equal(withoutChip(f, "hidden").hidden.length, 0);
+	assert.equal(f.days, 7); // the original is untouched
+	assert.deepEqual(activeChips({ ...f, folder: "", minDeg: 0, days: 0, invert: false, hidden: [] }, null, "", 0), []);
+});
+
+test("ago picks the unit", () => {
+	const n = 1e12;
+	assert.deepEqual(ago(n - 5000, n), { key: "time.now", n: 0 });
+	assert.deepEqual(ago(n - 5 * 60000, n), { key: "time.minutes", n: 5 });
+	assert.deepEqual(ago(n - 3 * 3600000, n), { key: "time.hours", n: 3 });
+	assert.deepEqual(ago(n - 10 * 86400000, n), { key: "time.days", n: 10 });
+	assert.deepEqual(ago(n - 100 * 86400000, n), { key: "time.months", n: 3 });
+	assert.deepEqual(ago(n - 800 * 86400000, n), { key: "time.years", n: 2 });
+	assert.equal(ago(n + 5000, n).key, "time.now"); // clock skew
+});
+
+test("toCanvas lays notes out and keeps only links between them", () => {
+	const c = toCanvas([{ path: "a.md", x: 10, y: -5 }, { path: "b.md", x: 0, y: 0 }], [["a.md", "b.md"], ["a.md", "zzz.md"]]);
+	assert.equal(c.nodes.length, 2);
+	assert.deepEqual([c.nodes[0].x, c.nodes[0].y], [22, -11]);
+	assert.equal(c.edges.length, 1);
+	assert.deepEqual([c.edges[0].fromNode, c.edges[0].toNode], ["n0", "n1"]);
+});
+
+import { convexHull, neighbourInDirection } from "../.test-build/hull.mjs";
+
+test("convexHull drops interior and collinear points", () => {
+	const h = convexHull([[0, 0], [4, 0], [4, 4], [0, 4], [2, 2], [2, 0], [1, 3]]);
+	assert.equal(h.length, 4);
+	assert.deepEqual(h.map((p) => p.join(",")).sort(), ["0,0", "0,4", "4,0", "4,4"]);
+	assert.equal(convexHull([[1, 1]]).length, 1);
+	assert.equal(convexHull([]).length, 0);
+});
+
+test("neighbourInDirection picks the best aligned page, or none", () => {
+	const c = [{ id: 1, x: 10, y: 0 }, { id: 2, x: 0, y: 10 }, { id: 3, x: 9, y: 5 }];
+	assert.equal(neighbourInDirection([0, 0], c, 1, 0), 1);
+	assert.equal(neighbourInDirection([0, 0], c, 0, 1), 2);
+	assert.equal(neighbourInDirection([0, 0], c, -1, 0), null);
+	assert.equal(neighbourInDirection([0, 0], [], 1, 0), null);
+});
+
+import { colorCats, sizeFactors } from "../.test-build/cats.mjs";
+
+const CP = (path, folder, tags, mtime, deg) => ({ path, folder, tags, mtime, deg });
+const CATP = [CP("a", "x", ["#t"], 100, 9), CP("b", "x", [], 90, 5), CP("c", "y", ["#t"], 80, 2), CP("d", "z", [], 70, 0), CP("e", "w", [], 60, 0)];
+
+test("colorCats by folder uses the three biggest folders and 'other'", () => {
+	const r = colorCats("folder", CATP);
+	assert.deepEqual(r.labels.slice(0, 1), ["x"]);
+	assert.equal(r.labels[3], "@legend.other");
+	assert.equal(r.cat.get("a"), 0);
+	assert.equal(r.cat.get("b"), 0);
+	assert.ok([0, 1, 2, 3].includes(r.cat.get("e")));
+	assert.equal(colorCats("type", CATP), null);
+});
+
+test("colorCats by tag, age and degree fall into 0..3", () => {
+	assert.equal(colorCats("tag", CATP).cat.get("a"), 0);
+	assert.equal(colorCats("tag", CATP).cat.get("b"), 3);
+	const age = colorCats("age", CATP).cat;
+	assert.equal(age.get("a"), 0);
+	assert.equal(age.get("e"), 3);
+	const deg = colorCats("degree", CATP).cat;
+	assert.deepEqual(["a", "b", "c", "d"].map((p) => deg.get(p)), [0, 1, 2, 3]);
+});
+
+test("sizeFactors: bigger for busier or fresher pages, within bounds", () => {
+	const by = sizeFactors("degree", CATP, 1000);
+	assert.ok(by.get("a") > by.get("c") && by.get("c") > by.get("d"));
+	assert.ok([...by.values()].every((v) => v >= 0.8 && v <= 1.9 + 1e-9));
+	const day = 86400000, fresh = sizeFactors("recent", [CP("n", "", [], 1e12, 0), CP("o", "", [], 1e12 - 365 * day, 0)], 1e12);
+	assert.ok(fresh.get("n") > 1.8 && fresh.get("o") < 0.85);
+	assert.equal(sizeFactors("same", CATP, 0), null);
+	assert.equal(sizeFactors("degree", [], 0), null);
+});

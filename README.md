@@ -28,6 +28,13 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
   - `is:orphan`, `is:broken`, `is:untyped`, `is:index`, `is:log`, `is:hub`.
   - With no match, a single word falls back to fuzzy file names. Enter again (or `›`/`‹`) walks the matches; `Copy` puts them on the clipboard as `[[links]]`.
 - **Filters**: also created-in-last-N-days, maximum links, neighbourhood depth 1 to 3, and invert.
+- **Selection**: Cmd/Ctrl+click adds pages, Alt+drag selects an area, Alt+click on the cloud selects a lobe. A group shows a dashed outline and a counter, and can be isolated, copied as links, turned into an Obsidian Canvas, or (two pages) joined by a route. Right-click opens a menu.
+- **Visibility**: active filters appear as removable chips under the search box; hidden pages can stay as faint dots; neighbours of the page in focus get a halo; colour pages by type, folder, tag, age or links, and size them by links or recency, with a legend.
+- **Search extras**: `/regex/`, `to:` and `from:` (links to / is linked from), `edited:today`, completions as you type, a clickable result list, and a "hide non-matches" mode. The `?` button shows the syntax with examples.
+- **Tooltip and details**: hovering shows a card (type, inputs, outputs, last edit); the panel keeps inputs, outputs and properties in collapsible sections.
+- **Camera**: keys 1, 2, 3 for front, top and side views; Alt+arrows hop between neighbours; `?` on the canvas lists every shortcut. Filters, search, selection and camera come back when Obsidian reopens the view.
+- **Export**: the PNG button (or command) saves the view as an image in the vault; "Make canvas" saves the selection as a `.canvas`.
+- **Replay scrubber**: drag the slider to jump to any point of the growth.
 - **Saved views**: name the current filters and search, save them, pick them again from the Filters panel (up to 20, kept in the plugin's data).
 - **Pin**: the Pin button in a page's panel holds it in place (kept between sessions).
 - **Log filter**: show only pages a `wiki/log.md` operation (ingest, query, lint...) touched, matched by page name in the entry title.
