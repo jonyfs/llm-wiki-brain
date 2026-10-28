@@ -78,6 +78,10 @@ export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: nu
 		const L = LOBES[a.lobe];
 		const ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
 		const q = Math.sqrt(ex * ex + ey * ey + ez * ez), lim = 0.97 * fold(a.x, a.y, a.z);
+		if (q < 0.5 && !a.pinned) { // the middle of a lobe is not left empty: a gentle push toward the cortex uses the whole shell
+			const out = (0.5 - q) * 0.03;
+			a.vx += (a.x - L.c[0]) * out; a.vy += (a.y - L.c[1]) * out; a.vz += (a.z - L.c[2]) * out;
+		}
 		if (q > lim) {
 			const pull = (q - lim) * 0.12;
 			a.vx += (L.c[0] - a.x) * pull; a.vy += (L.c[1] - a.y) * pull; a.vz += (L.c[2] - a.z) * pull;
