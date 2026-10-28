@@ -287,3 +287,61 @@ test("sizeFactors: bigger for busier or fresher pages, within bounds", () => {
 	assert.equal(sizeFactors("same", CATP, 0), null);
 	assert.equal(sizeFactors("degree", [], 0), null);
 });
+
+import { bfsLevels, hopMs } from "../.test-build/wave.mjs";
+
+test("bfsLevels follows the links forward first, hop by hop", () => {
+	// 0 -> 1, 0 -> 2, 1 -> 3, 3 -> 4 ; 5 only links to 4 ; 6 is alone
+	const out = [[1, 2], [3], [], [4], [], [4], []];
+	const any = [[1, 2], [0, 3], [0], [1, 4], [3, 5], [4], []];
+	const w = bfsLevels(out, any, 0, () => true);
+	assert.deepEqual(w.levels.slice(0, 4), [[0], [1, 2], [3], [4]]);
+	assert.deepEqual([w.level[3], w.level[4]], [2, 3]);
+	assert.equal(w.parent[3], 1);
+	assert.equal(w.weak[3], 0);
+	// 5 is only reached backwards, through 4
+	assert.equal(w.level[5], 4);
+	assert.equal(w.weak[5], 1);
+	assert.equal(w.parent[5], 4);
+	// 6 has no link at all
+	assert.equal(w.level[6], -1);
+	assert.equal(w.levels.flat().includes(6), false);
+});
+
+test("bfsLevels skips hidden pages and survives bad input", () => {
+	const out = [[1], [2], []], any = [[1], [0, 2], [1]];
+	const w = bfsLevels(out, any, 0, (i) => i !== 1);
+	assert.deepEqual(w.levels, [[0]]);
+	assert.equal(w.level[2], -1); // the only road went through the hidden page
+	assert.deepEqual(bfsLevels([], [], 0, () => true).levels, []);
+	assert.deepEqual(bfsLevels(out, any, 9, () => true).levels, []);
+});
+
+test("hopMs keeps the wave to a few seconds and scales with speed", () => {
+	assert.ok(hopMs(2, 1) <= 900 && hopMs(40, 1) >= 320);
+	for (const h of [3, 6, 12]) assert.ok(hopMs(h, 1) * h <= 5300 + 1e-6 || hopMs(h, 1) === 320);
+	assert.ok(hopMs(6, 2) < hopMs(6, 1));
+	assert.ok(Number.isFinite(hopMs(0, 0)));
+});
+
+test("bfsLevels spreads through the network when the index links to everything", () => {
+	// the index (0) links to every page; 1 -> 3 -> 4, and 2 stands alone
+	const out = [[1, 2, 3, 4], [3], [], [4], []];
+	const any = [[1, 2, 3, 4], [0, 3], [0], [0, 1, 4], [0, 3]];
+	const w = bfsLevels(out, any, 0, () => true);
+	assert.deepEqual(w.levels, [[0], [1, 2], [3], [4]]); // not one flat hop
+	assert.equal(w.parent[3], 1);
+	assert.equal(w.parent[4], 3);
+	const flat = bfsLevels(out, any, 0, () => true, false);
+	assert.deepEqual(flat.levels, [[0], [1, 2, 3, 4]]);
+});
+
+test("bfsLevels falls back to the index's own links for pages the network cannot reach", () => {
+	// 1 and 2 only link to each other, and the index links to both: no entry point, so both are one hop from the index
+	const out = [[1, 2], [2], [1]];
+	const any = [[1, 2], [0, 2], [0, 1]];
+	const w = bfsLevels(out, any, 0, () => true);
+	assert.deepEqual(w.levels, [[0], [1, 2]]);
+	// every reachable page ends up with a level
+	assert.ok([...w.level].every((l) => l >= 0));
+});

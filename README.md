@@ -90,7 +90,7 @@ Filters, search, selection and camera are saved with the pane, so the view comes
 
 ## Growth: Flow and Replay
 
-- **Flow** sends a packet from the index along the shortest chain of links to the latest created (or edited) page, with a trail and a pulse per hop. If the page has no link from the index yet, a dashed arc shows where the link is missing. Use **Flow from index** on any selected page, "stay in view" to route only through visible pages, and "Flow to new pages" to send one automatically when you create a page.
+- **Flow** is a wave that leaves the index and reaches **every page**, hop by hop. Rings spread from the index across the brain; at each hop comets run along the links to the pages reached next, the links just crossed glow and fade, and each arriving page flares. The status line counts the hops and the pages reached ("Flow: hop 3 of 6 · 41 of 89 pages") and ends with a summary. Because an LLM wiki's index links to everything, the links the index holds toward pages that other pages also link are held back: the wave goes first to the pages only the index knows and then spreads through the links between pages, so the hops show how the knowledge is really connected. Links followed backwards are drawn dimmer, and pages with no link at all to the rest of the wiki get a dashed arc from the index at the end. The wave ends on the latest created (or edited) page with a slow double ring; "stay in view" limits it to visible pages. With reduced motion the pages light up hop by hop without the comets. **Flow from index** on a selected page, and the automatic flow to a page you just created, still send a single packet along the shortest chain of links (a dashed arc where the link is missing).
 - **Replay** empties the brain and the pages return in creation order (or by last edit), each fed from the index. Pause, speed 0.5× to 4×, loop, **start from a date**, and drag the **scrubber** to jump to any point. A caption shows the date, the progress and the operations `wiki/log.md` recorded that day. If file dates are all the same (a vault restored from Git or iCloud), the log's dates place the pages.
 - **Lint** rings orphan pages, pages with broken links and pages without a type, with a clickable list.
 
@@ -137,7 +137,7 @@ In the Filters panel: **Color by** type (default), folder, tag, age or links, an
 - **Language:** Auto (follows Obsidian), English, Portuguese (Brazil), Spanish, French.
 - **Wiki folder** (default `wiki`): only pages inside it become neurons; empty means the whole vault. A warning appears if the folder has no notes.
 - **Maximum pages** (default 800, up to 10,000): larger vaults keep the most connected pages and the index, and the status line says how many were left out.
-- **Ambient signals** (off, calm, lively), **Flow speed**, **Flow target** (latest created or edited), **Flow stays in view**, **Flow to new pages**.
+- **Ambient signals** (off, calm, lively), **Flow speed**, **Flow target** (the page the wave ends on: latest created or edited), **Flow stays in view**, **Flow to new pages**.
 - **Neuron detail** (Auto, High, Simple), **Follow the open note**, **Preview on hover**, **Light up on file explorer hover**.
 - **Label size**, **Show performance** (frames per second and quality in the status bar), **Reduce motion** (settle the layout instantly and stop the slow rotation).
 
