@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assignPorts, edgeCurve, growDendrites, wantedDendrites, reshuffle } from "../.test-build/ports.mjs";
+import { AXON_TIPS, assignPorts, edgeCurve, growDendrites, wantedDendrites, reshuffle } from "../.test-build/ports.mjs";
 
 const den = (x, y, z) => ({ m: [x * 0.5, y * 0.5, z * 0.5], t: [x, y, z], b: null });
 const node = (id, x, y, z, dens, deg) => ({ id, x, y, z, deg, den: dens, port: [] });
@@ -84,4 +84,31 @@ test("a branch pointing away from the other cell gets a short tangent (no loop)"
 test("two cells on the same spot do not make NaN", () => {
 	const c = edgeCurve(A([5, 5, 1, 0], [5, 5, -1, 0]), 0, true, 0.1);
 	for (const v of c) assert.ok(Number.isFinite(v));
+});
+
+test("a one-way link leaves through an axon terminal and arrives on a dendrite", () => {
+	const mk = (id, x) => ({ id, x, y: 0, z: 0, deg: 1, din: id === 1 ? 1 : 0, den: [{ m: [0, 0, 0], t: [1, 0, 0], b: null }, { m: [0, 0, 0], t: [-1, 0, 0], b: null }], port: [] });
+	const a = mk(0, 0), b = mk(1, 100);
+	const e = [0, 1, 0.1, false, 0, 0];
+	assignPorts([a, b], [e], () => {}, (ei, id) => id === 0);
+	assert.equal(e[4], -1); // tip 0 at the source
+	assert.ok(e[5] >= 0); // a dendrite at the target
+	assert.equal(b.port.reduce((x, y) => x + y, 0), 1);
+	assert.equal(a.port.reduce((x, y) => x + y, 0), 0);
+});
+
+test("outgoing links spread over the axon terminals, then reuse them", () => {
+	const hub = { id: 0, x: 0, y: 0, z: 0, deg: 4, din: 0, den: [], port: [] };
+	const leaves = [1, 2, 3, 4].map((id) => ({ id, x: 50 * id, y: 0, z: 0, deg: 1, den: [{ m: [0, 0, 0], t: [1, 0, 0], b: null }], port: [] }));
+	const edges = leaves.map((l) => [0, l.id, 0.1, false, 0, 0]);
+	assignPorts([hub, ...leaves], edges, () => {}, (ei, id) => id === 0);
+	assert.deepEqual(edges.map((e) => e[4]), [-1, -2, -3, -1]);
+	assert.equal(AXON_TIPS, 3);
+});
+
+test("dendrites are sized by inputs when din is given", () => {
+	const a = { id: 0, x: 0, y: 0, z: 0, deg: 9, din: 2, den: [], port: [] };
+	let asked = 0;
+	assignPorts([a], [], (n, want) => (asked = want));
+	assert.equal(asked, 2);
 });

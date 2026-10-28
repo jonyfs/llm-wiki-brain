@@ -12,6 +12,7 @@ export interface PortNode {
 	y: number;
 	z: number;
 	deg: number;
+	din?: number; // links that arrive here: only these need dendrites
 	den: Den[];
 	port: number[]; // how many links leave through each dendrite
 }
@@ -41,21 +42,31 @@ export function wantedDendrites(deg: number, cap = 20): number {
  * Every link gets a dendrite at each end: the one that points most toward the other cell, penalised by how many
  * links it already carries. Fills `e[4]`, `e[5]` and `n.port`.
  */
-export function assignPorts(nodes: PortNode[], edges: PortEdge[], grow: (n: PortNode, want: number) => void): void {
+export const AXON_TIPS = 3;
+
+/** `isOut(edge, node)`: the link leaves this node, so it starts on an axon terminal (stored as -1 - tip) instead of a dendrite. */
+export function assignPorts(nodes: PortNode[], edges: PortEdge[], grow: (n: PortNode, want: number) => void, isOut?: (edge: number, node: number) => boolean): void {
 	const inc: number[][] = nodes.map(() => []);
 	edges.forEach((e, i) => {
 		inc[e[0]].push(i);
 		inc[e[1]].push(i);
 	});
 	for (const n of nodes) {
-		const want = wantedDendrites(n.deg);
+		const want = wantedDendrites(n.din ?? n.deg);
 		if (n.den.length < want) grow(n, want);
 		const load = new Array<number>(n.den.length).fill(0);
 		const units = n.den.map((d) => {
 			const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
 			return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
 		});
+		let outN = 0;
 		for (const ei of inc[n.id]) {
+			if (isOut?.(ei, n.id)) {
+				const tip = -1 - (outN++ % AXON_TIPS);
+				if (edges[ei][0] === n.id) edges[ei][4] = tip;
+				else edges[ei][5] = tip;
+				continue;
+			}
 			const e = edges[ei], other = nodes[e[0] === n.id ? e[1] : e[0]];
 			const dx = other.x - n.x, dy = other.y - n.y, dz = other.z - n.z, dl = Math.hypot(dx, dy, dz) || 1;
 			let best = 0, bs = -1e9;

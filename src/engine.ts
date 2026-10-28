@@ -4,7 +4,7 @@
 import { Net, cascade, hebb, synapsesOf, Spike } from "./synapse";
 import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
+import { AXON_TIPS, assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
 import { quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
@@ -97,6 +97,7 @@ interface Cell {
 	pd: number;
 	den: Dendrite[];
 	port: number[]; // how many links leave through each dendrite
+	din: number; // links that arrive here
 	axon: number[]; // unit direction (cell frame) with the most room, where the axon leaves
 }
 
@@ -336,7 +337,7 @@ export class BrainEngine {
 		for (const [pi, p] of pages.entries()) {
 			const prev = old.get(p.path);
 			if (prev) {
-				Object.assign(prev, { type: p.type, label: p.label, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog, deg: 0, adj: [] as number[] });
+				Object.assign(prev, { din: 0, type: p.type, label: p.label, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog, deg: 0, adj: [] as number[] });
 				next.push(prev);
 				byPath.set(p.path, prev);
 				continue;
@@ -358,7 +359,7 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], axon: [0, 1, 0],
+				px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -799,10 +800,15 @@ export class BrainEngine {
 	/* ---------- Ports: where each link leaves the neuron ---------- */
 
 	private assignPorts(): void {
+		for (const n of this.nodes) n.din = 0;
+		this.edges.forEach((e, i) => {
+			this.nodes[e[1]].din++;
+			if (e[0] !== e[1] && this.mutual[i]) this.nodes[e[0]].din++;
+		});
 		assignPortsPure(this.nodes, this.edges, (n, want) => {
 			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
 			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
-		});
+		}, (ei, id) => this.edges[ei][0] === id && !this.mutual[ei]); // a one-way link leaves through the axon of the page that holds it
 		for (const n of this.nodes) n.axon = freeDirection(n.den);
 		this.portsDirty = false;
 	}
@@ -817,6 +823,16 @@ export class BrainEngine {
 
 	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
 	private anchorOf(n: Cell, di: number, out: Float64Array, o: number): void {
+		if (di < 0) {
+			const tip = this.axonGeom(n)?.tips[-1 - di];
+			if (tip) {
+				out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
+				return;
+			}
+			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy) || 1; // axon foreshortened: leave from the soma edge
+			out[o] = n.px + (vx / l) * n.pr * 0.9; out[o + 1] = n.py + (vy / l) * n.pr * 0.9; out[o + 2] = vx / l; out[o + 3] = vy / l;
+			return;
+		}
 		const d = n.den[di];
 		if (!d) {
 			out[o] = n.px; out[o + 1] = n.py; out[o + 2] = 0; out[o + 3] = 0;
@@ -1613,12 +1629,28 @@ export class BrainEngine {
 	}
 
 	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
+	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
+	private axonGeom(n: Cell): { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] } | null {
+		const R = n.pr, [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
+		if (l < 0.3) return null;
+		const ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
+		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
+		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
+		const t = 0.72, u = 1 - t, bx = u * u * hx + 2 * u * t * cx + t * t * ex, by = u * u * hy + 2 * u * t * cy + t * t * ey;
+		const tips: number[][] = [[ex, ey, ux, uy]];
+		for (const sd of [-1, 1]) {
+			const tx = bx + ux * R * 1.2 + qx * R * 1.1 * sd, ty = by + uy * R * 1.2 + qy * R * 1.1 * sd, dx = tx - bx, dy = ty - by, dl = Math.hypot(dx, dy) || 1;
+			tips.push([tx, ty, dx / dl, dy / dl]);
+		}
+		return { hx, hy, ux, uy, qx, qy, L, cx, cy, bx, by, tips };
+	}
+
 	private drawAxon(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr, R = n.pr;
-		const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
-		if (l < 0.3) return; // pointing at the viewer: foreshortened to nothing
-		const col = this.palRGB[n.type] ?? "255,255,255", ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
-		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
+		const g = this.axonGeom(n);
+		if (!g) return;
+		const { hx, hy, ux, uy, qx, qy, cx, cy, bx, by, tips } = g;
+		const col = this.palRGB[n.type] ?? "255,255,255";
 		ctx.fillStyle = "rgba(" + col + "," + al * 0.8 + ")"; // hillock
 		ctx.beginPath();
 		ctx.moveTo(n.px + ux * R * 0.9 + qx * R * 0.3, n.py + uy * R * 0.9 + qy * R * 0.3);
@@ -1626,19 +1658,17 @@ export class BrainEngine {
 		ctx.lineTo(hx, hy);
 		ctx.closePath();
 		ctx.fill();
-		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
 		ctx.strokeStyle = "rgba(" + col + "," + al * 0.6 + ")";
 		ctx.lineCap = "round";
 		ctx.lineWidth = Math.max(0.7 * dpr, R * 0.1);
 		ctx.beginPath();
 		ctx.moveTo(hx, hy);
-		ctx.quadraticCurveTo(cx, cy, ex, ey);
-		const t = 0.72, u = 1 - t, bx = u * u * hx + 2 * u * t * cx + t * t * ex, by = u * u * hy + 2 * u * t * cy + t * t * ey;
-		const ends: number[] = [ex, ey];
-		for (const s of [-1, 1]) {
-			const tx = bx + ux * R * 1.2 + qx * R * 1.1 * s, ty = by + uy * R * 1.2 + qy * R * 1.1 * s;
+		ctx.quadraticCurveTo(cx, cy, tips[0][0], tips[0][1]);
+		const ends: number[] = [tips[0][0], tips[0][1]];
+		for (const [i, sd] of [[1, -1], [2, 1]]) {
+			const [tx, ty] = tips[i];
 			ctx.moveTo(bx, by);
-			ctx.quadraticCurveTo(bx + ux * R * 0.5 + qx * R * 0.2 * s, by + uy * R * 0.5 + qy * R * 0.2 * s, tx, ty);
+			ctx.quadraticCurveTo(bx + ux * R * 0.5 + qx * R * 0.2 * sd, by + uy * R * 0.5 + qy * R * 0.2 * sd, tx, ty);
 			ends.push(tx, ty);
 		}
 		ctx.stroke();
