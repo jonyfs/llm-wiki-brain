@@ -1,6 +1,7 @@
 /* Brain engine: Canvas 2D with real perspective, depth sorting and neuron-shaped nodes.
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
+import { perspective } from "./camera";
 import { convexHull, neighbourInDirection } from "./hull";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
@@ -758,7 +759,7 @@ export class BrainEngine {
 		let best = -1, bs = 1e9;
 		LOBES.forEach((L, i) => {
 			const a = L.c[0] * this.camCy + L.c[2] * this.camSy, z1 = -L.c[0] * this.camSy + L.c[2] * this.camCy;
-			const b = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+			const b = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = perspective(z2, DIST);
 			const cx = this.W / 2 + this.panX + a * p * this.S0, cy = this.H / 2 + this.panY + b * p * this.S0;
 			const rx = Math.max(L.r[0], L.r[2]) * p * this.S0, ry = L.r[1] * p * this.S0;
 			const q = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
@@ -1571,7 +1572,7 @@ export class BrainEngine {
 		this.camCy = cy; this.camSy = sy; this.camCp = cp; this.camSp = sp;
 		const cx = this.W / 2 + this.panX, cyy = this.H / 2 + this.panY, rk = this.S0 * Math.pow(this.zoom, -0.35) * 0.62;
 		for (const n of this.nodes) {
-			const x1 = n.x * cy + n.z * sy, z1 = -n.x * sy + n.z * cy, y1 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp, p = DIST / (DIST + z2);
+			const x1 = n.x * cy + n.z * sy, z1 = -n.x * sy + n.z * cy, y1 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp, p = perspective(z2, DIST);
 			n.px = cx + x1 * p * this.S0;
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
@@ -1667,7 +1668,7 @@ export class BrainEngine {
 			ctx.globalAlpha = this.ghostAlpha;
 			for (const L of LOBES) {
 				const x = L.c[0] * this.camCy + L.c[2] * this.camSy, z1 = -L.c[0] * this.camSy + L.c[2] * this.camCy;
-				const y = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+				const y = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = perspective(z2, DIST);
 				const rx = Math.max(L.r[0], L.r[2]) * 1.08 * p * this.S0, ry = L.r[1] * 1.12 * p * this.S0;
 				ctx.drawImage(this.ghost, this.W / 2 + this.panX + x * p * this.S0 - rx, this.H / 2 + this.panY + y * p * this.S0 - ry, rx * 2, ry * 2);
 			}
