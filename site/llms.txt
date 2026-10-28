@@ -1,0 +1,11 @@
+# LLM Wiki Brain
+
+> An Obsidian plugin that shows a wiki as a living 3D brain: pages are neurons, links are synapses, and a Flow wave carries information from the index to every page. MIT licensed. No network access, no telemetry.
+
+- Site: https://jonyfs.github.io/llm-wiki-brain/
+- Source and releases: https://github.com/jonyfs/llm-wiki-brain
+- Install: BRAT (`jonyfs/llm-wiki-brain`) or download main.js, manifest.json and styles.css from the latest release into `<vault>/.obsidian/plugins/llm-wiki-brain/`. Not yet in the Obsidian community directory.
+- Related: https://jonyfs.github.io/llm-wiki-template/ (a template for a wiki an AI assistant maintains)
+
+## What it does
+Brain view with lobes and directed links (dendrites in, axon out); Flow wave, Replay, Ask; search syntax (words, path:, tag:, type:, heading:, links:, created:, edited:, prop:, is:, to:, from:, /regex/, or, -); filters and saved views; multi-selection with isolate, copy links, Canvas and PNG export; lint; English, Portuguese (Brazil), Spanish and French. Canvas 2D; about 25 ms per frame at 10,000 pages in a synthetic benchmark.

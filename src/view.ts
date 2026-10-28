@@ -196,7 +196,12 @@ export class BrainView extends ItemView {
 			this.chips.set(t, chip);
 		}
 		const more = bar.createEl("button", { text: "⋯", cls: "llm-wiki-brain-more", attr: { "aria-label": this.t("btn.more"), title: this.t("btn.more") } });
-		more.addEventListener("click", () => this.toolsRow.toggleClass("is-collapsed", !this.toolsRow.hasClass("is-collapsed")));
+		more.addEventListener("click", () => {
+			// Wide panes show the toolbar unless collapsed; narrow panes (see the container query in styles.css) hide it unless open.
+			const hidden = getComputedStyle(this.toolsRow).display === "none";
+			this.toolsRow.toggleClass("is-collapsed", !hidden);
+			this.toolsRow.toggleClass("is-open", hidden);
+		});
 
 		this.toolsRow = root.createDiv({ cls: "llm-wiki-brain-tools" });
 		this.buildTools();

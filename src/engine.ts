@@ -838,7 +838,7 @@ export class BrainEngine {
 		const focus = o.focus ? this.byPath.get(o.focus)?.id ?? -1 : -1;
 		this.packets = [];
 		this.waves = [];
-		const now = this.tNow || performance.now();
+		const now = performance.now(); // not tNow: the frame clock is stale when the view has been off screen
 		this.bc = { levels: w.levels, parent: w.parent, pedge, weak: w.weak, t0: now + 200, hop, shown: 0, focus, reached: 1, total: reachedAll + missed.length, missed, endAt: now + 200 + (hops + 1) * hop + 2200 };
 		start.pulse = 1;
 		start.lit = now + 2600;
@@ -1632,7 +1632,7 @@ export class BrainEngine {
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
-			n.pr = (2.1 + Math.sqrt(n.deg) * 1.2 + n.pulse * 6) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz;
+			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.pulse * 6) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
 		}
 		if (this.nodes.length > 800) {
 			this.pickGrid.clear();
@@ -1681,7 +1681,7 @@ export class BrainEngine {
 			ctx.strokeStyle = "rgb(" + this.edgeRGB + ")";
 			ctx.lineWidth = (k ? 1.2 : 2) * dpr;
 			ctx.beginPath();
-			ctx.arc(idx.px, idx.py, f * Math.max(this.W, this.H) * 0.62, 0, 6.2832);
+			ctx.arc(idx.px, idx.py, Math.max(0.5, f * Math.max(this.W, this.H) * 0.62), 0, 6.2832);
 			ctx.stroke();
 		}
 		// links crossed in the last hops keep a glow that fades with their age
@@ -1729,14 +1729,14 @@ export class BrainEngine {
 		// the page the wave ends on gets a slow double ring once it has arrived
 		const f = bc.focus >= 0 ? this.nodes[bc.focus] : null;
 		if (f && !f.off && bc.shown >= (bc.levels.findIndex((l) => l.includes(bc.focus)) || 1)) {
-			const age = (this.tNow - f.lit + 4200) / 4200;
+			const age = Math.min(3, Math.max(0, (this.tNow - f.lit + 4200) / 4200));
 			for (let k = 0; k < 2; k++) {
 				const q = (age * 1.4 + k * 0.4) % 1;
 				ctx.globalAlpha = (1 - q) * 0.6;
 				ctx.strokeStyle = this.labelColor;
 				ctx.lineWidth = 1.5 * dpr;
 				ctx.beginPath();
-				ctx.arc(f.px, f.py, f.pr * (1.6 + q * 3), 0, 6.2832);
+				ctx.arc(f.px, f.py, Math.max(0.5, f.pr * (1.6 + q * 3)), 0, 6.2832);
 				ctx.stroke();
 			}
 		}
@@ -1912,7 +1912,7 @@ export class BrainEngine {
 				ctx.lineWidth = dpr;
 				ctx.strokeStyle = "rgb(" + this.palRGB[n.vt] + ")";
 				ctx.beginPath();
-				ctx.arc(n.px, n.py, n.pr * (1.3 + (1 - n.pulse) * 2.4), 0, 6.2832);
+				ctx.arc(n.px, n.py, Math.max(0, n.pr * (1.3 + (1 - n.pulse) * 2.4)), 0, 6.2832);
 				ctx.stroke();
 			}
 			ctx.globalAlpha = 1;

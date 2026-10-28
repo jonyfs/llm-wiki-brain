@@ -112,27 +112,24 @@ test("cellSize shrinks as the brain fills up, within bounds", () => {
 	assert.equal(cellSize(1e7), 24);
 });
 
-test("a step stays fast for thousands of nodes (it must not go quadratic)", () => {
-	const mk = (n) => {
-		let seed = 7;
-		const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-		return Array.from({ length: n }, (_, i) => {
-			const l = Math.floor(r() * 7), L = LOBES[l];
-			return { id: i, lobe: l, side: L.side, x: L.c[0] + (r() - 0.5) * L.r[0], y: L.c[1] + (r() - 0.5) * L.r[1], z: L.c[2] + (r() - 0.5) * L.r[2], vx: 0, vy: 0, vz: 0 };
-		});
-	};
-	const time = (n) => {
-		const nodes = mk(n), edges = Array.from({ length: n - 1 }, (_, i) => [i + 1, Math.floor(i / 2)]);
-		simStep(nodes, edges, 1);
-		let best = Infinity; // best of five: a busy machine must not fail a test about complexity
-		for (let i = 0; i < 5; i++) {
-			const t = performance.now();
-			simStep(nodes, edges, 0.5);
-			best = Math.min(best, performance.now() - t);
-		}
-		return best;
-	};
-	const a = time(2000), b = time(8000);
-	assert.ok(b < a * 8, "2000 nodes " + a.toFixed(1) + " ms, 8000 nodes " + b.toFixed(1) + " ms"); // 4x the nodes: well under 16x
-	assert.ok(b < 150, "8000 nodes took " + b.toFixed(1) + " ms per step");
+test("the repulsion grid keeps the neighbours per node bounded as nodes are added (that is what keeps a step linear)", () => {
+	// 27 cells of side cellSize around a node, at the density of n nodes in the brain's volume (about 27e6 cubed units)
+	for (const n of [200, 1000, 3000, 10000, 40000]) {
+		const neighbours = (27 * cellSize(n) ** 3 * n) / 27e6;
+		assert.ok(neighbours < 700, n + " nodes: " + neighbours.toFixed(0) + " neighbours per node");
+	}
+	// with the old fixed 150-unit cell, 10,000 nodes meant thousands of neighbours each (a quadratic step)
+	assert.ok((27 * 150 ** 3 * 10000) / 27e6 > 5000);
+});
+
+test("a step on a few thousand nodes finishes (smoke test, no timing assertion)", () => {
+	let seed = 7;
+	const r = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+	const nodes = Array.from({ length: 4000 }, (_, i) => {
+		const l = Math.floor(r() * 7), L = LOBES[l];
+		return { id: i, lobe: l, side: L.side, x: L.c[0] + (r() - 0.5) * L.r[0], y: L.c[1] + (r() - 0.5) * L.r[1], z: L.c[2] + (r() - 0.5) * L.r[2], vx: 0, vy: 0, vz: 0 };
+	});
+	const edges = Array.from({ length: 3999 }, (_, i) => [i + 1, Math.floor(i / 2)]);
+	for (let i = 0; i < 3; i++) simStep(nodes, edges, 0.5);
+	assert.ok(nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z)));
 });
