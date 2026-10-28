@@ -49,22 +49,21 @@ export default class BrainPlugin extends Plugin {
 		this.addCommand({
 			id: "ask",
 			name: t("cmd.ask"),
-			callback: () => {
-				void this.activate().then(() =>
+			callback: () =>
+				void this.withViews(() =>
 					new AskModal(this.app, t, (q) => {
 						const hits = Array.from(matchQuery(buildVaultGraph(this.app, this.settings), q));
 						this.views().forEach((v) => v.engine?.ask(hits));
 						new Notice(hits.length ? t("ask.lit", { n: hits.length }) : t("status.noMatch"));
 					}).open(),
-				);
-			},
+				),
 		});
-		this.addCommand({ id: "lint", name: t("cmd.lint"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.runLint())) });
+		this.addCommand({ id: "lint", name: t("cmd.lint"), callback: () => void this.withViews((vs) => vs.forEach((v) => v.runLint())) });
 		this.addCommand({ id: "clear", name: t("cmd.clear"), callback: () => this.views().forEach((v) => v.engine?.clearMarks()) });
-		this.addCommand({ id: "flow", name: t("cmd.flow"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.playFlow())) });
-		this.addCommand({ id: "replay", name: t("cmd.replay"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.engine?.replay())) });
-		this.addCommand({ id: "search", name: t("cmd.search"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.focusSearch())) });
-		this.addCommand({ id: "export", name: t("cmd.export"), callback: () => void this.activate().then(() => this.views().forEach((v) => void v.exportPng())) });
+		this.addCommand({ id: "flow", name: t("cmd.flow"), callback: () => void this.withViews((vs) => vs.forEach((v) => v.playFlow())) });
+		this.addCommand({ id: "replay", name: t("cmd.replay"), callback: () => void this.withViews((vs) => vs.forEach((v) => v.engine?.replay())) });
+		this.addCommand({ id: "search", name: t("cmd.search"), callback: () => void this.withViews((vs) => vs.forEach((v) => v.focusSearch())) });
+		this.addCommand({ id: "export", name: t("cmd.export"), callback: () => void this.withViews((vs) => vs.forEach((v) => void v.exportPng())) });
 		this.addCommand({ id: "canvas", name: t("cmd.canvas"), callback: () => this.views().forEach((v) => void v.makeCanvas()) });
 		this.addCommand({ id: "clear-filters", name: t("cmd.clearFilters"), callback: () => this.views().forEach((v) => v.clearAll()) });
 		this.addSettingTab(new BrainSettingTab(this.app, this));
@@ -101,8 +100,10 @@ export default class BrainPlugin extends Plugin {
 		});
 	}
 
-	onunload(): void {
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_BRAIN);
+	/** Open the brain view if it is not open, then run `fn` with every open view. */
+	private async withViews(fn: (views: BrainView[]) => void): Promise<void> {
+		await this.activate();
+		fn(this.views());
 	}
 
 	views(): BrainView[] {
@@ -151,11 +152,11 @@ export default class BrainPlugin extends Plugin {
 		this.views().forEach((v) => void v.refresh());
 	}
 
-	/** Auto follows Obsidian (getLanguage on 1.8+, the stored language before that); English when it is not one of ours. */
+	/** Auto follows Obsidian's language; English when it is not one of ours. */
 	refreshLang(): void {
 		let obs: string | null = null;
 		try {
-			obs = typeof getLanguage === "function" ? getLanguage() : window.localStorage.getItem("language");
+			obs = getLanguage();
 		} catch {
 			obs = null;
 		}

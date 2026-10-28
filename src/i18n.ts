@@ -8,7 +8,7 @@ export const LANGS: Lang[] = ["en", "pt-BR", "es", "fr"];
 export const LANG_NAMES: Record<Lang, string> = { en: "English", "pt-BR": "Português (Brasil)", es: "Español", fr: "Français" };
 
 /** The language to use: the user's choice, or Obsidian's own language when set to auto. Anything unknown is English. */
-export function resolveLang(pref: LangPref | string | undefined, obsidianLang: string | null | undefined): Lang {
+export function resolveLang(pref: string | undefined, obsidianLang: string | null | undefined): Lang {
 	if (pref && pref !== "auto" && (LANGS as string[]).includes(pref)) return pref as Lang;
 	const l = (obsidianLang ?? "").toLowerCase().replace("_", "-");
 	if (l.startsWith("pt")) return "pt-BR";
@@ -1048,7 +1048,7 @@ const FR: Dict = {
 	"set.lang.auto": "Auto (suivre Obsidian)",
 };
 
-export const STRINGS: Record<Lang, Dict> = { en: EN as unknown as Dict, "pt-BR": PT, es: ES, fr: FR };
+export const STRINGS: Record<Lang, Dict> = { en: EN, "pt-BR": PT, es: ES, fr: FR };
 
 export type Vars = Record<string, string | number>;
 

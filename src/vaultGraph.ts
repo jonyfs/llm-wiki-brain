@@ -158,7 +158,7 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	const meta = new Map<string, PageMeta>();
 	const pages: GraphNode[] = files.map((f) => {
 		const cache = app.metadataCache.getFileCache(f);
-		const fmTags = cache?.frontmatter?.tags;
+		const fmTags: unknown = cache?.frontmatter?.tags;
 		const tags = [
 			...(cache?.tags ?? []).map((t) => normTag(t.tag)),
 			...(Array.isArray(fmTags) ? fmTags : typeof fmTags === "string" ? fmTags.split(/[\s,]+/) : []).filter(Boolean).map((t: string) => normTag(String(t))),
@@ -201,12 +201,14 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 }
 
 /** Frontmatter as lower-cased keys and flat strings (lists joined by commas), so `prop:status=draft` works. */
+const scalar = (x: unknown): string => (typeof x === "string" || typeof x === "number" || typeof x === "boolean" ? String(x) : "");
+
 export function frontmatterProps(fm: Record<string, unknown> | undefined): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!fm) return out;
 	for (const [k, v] of Object.entries(fm)) {
 		if (k === "position" || v == null || typeof v === "object" && !Array.isArray(v)) continue;
-		out[k.toLowerCase()] = Array.isArray(v) ? v.map(String).join(",") : String(v);
+		out[k.toLowerCase()] = Array.isArray(v) ? v.map(scalar).join(",") : scalar(v);
 	}
 	return out;
 }

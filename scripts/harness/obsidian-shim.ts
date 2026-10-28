@@ -73,6 +73,7 @@ export function installDomHelpers(): void {
 		this.appendChild(el);
 		return el;
 	};
+	(globalThis as unknown as Record<string, unknown>).createEl = (tag: string, o?: DomOpts) => apply(document.createElement(tag), o);
 	P.createDiv = function (this: HTMLElement, o?: DomOpts) {
 		return (this as unknown as { createEl: (t: string, o?: DomOpts) => HTMLElement }).createEl("div", o);
 	};

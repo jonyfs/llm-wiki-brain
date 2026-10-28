@@ -305,6 +305,8 @@
 }
 .llm-wiki-brain-tooltip {
 	position: absolute;
+	left: var(--tip-x, 0);
+	top: var(--tip-y, 0);
 	z-index: 5;
 	max-width: 220px;
 	padding: 6px 9px;

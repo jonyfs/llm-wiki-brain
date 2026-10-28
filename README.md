@@ -153,6 +153,8 @@ Canvas 2D, no WebGL, no worker, no network, no telemetry, no dependencies. Measu
 
 ## Install
 
+Requires Obsidian 1.8.7 or newer.
+
 Beta with [BRAT](https://github.com/TfTHacker/obsidian42-brat): add `jonyfs/llm-wiki-brain`.
 
 Manual: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/jonyfs/llm-wiki-brain/releases/latest) into `<vault>/.obsidian/plugins/llm-wiki-brain/`, then enable the plugin in Settings → Community plugins.
