@@ -212,11 +212,13 @@ export class BrainView extends ItemView {
 		this.replayCaption = this.replayBar.createSpan({ cls: "llm-wiki-brain-replaycap", attr: { "aria-live": "polite" } });
 		this.replayBar.hide();
 
-		this.buildSearchRow(root);
-		this.chipsRow = root.createDiv({ cls: "llm-wiki-brain-active" });
-		this.results = root.createDiv({ cls: "llm-wiki-brain-results" });
+		// One column under the toolbar: search, active filter chips, results and the filters panel never overlap.
+		const stack = root.createDiv({ cls: "llm-wiki-brain-stack" });
+		this.buildSearchRow(stack);
+		this.chipsRow = stack.createDiv({ cls: "llm-wiki-brain-active" });
+		this.results = stack.createDiv({ cls: "llm-wiki-brain-results" });
 		this.results.hide();
-		this.buildPanel(root);
+		this.buildPanel(stack);
 
 		this.stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
 		this.canvas = this.stage.createEl("canvas", { attr: { tabindex: "0", role: "img", "aria-label": this.t("canvas.aria") } });

@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LLM Wiki Brain, real view in a harness</title>
+<link rel="stylesheet" href="../../styles.css?v=4">
+<style>
+/* Obsidian's default dark theme variables, the ones styles.css uses. */
+:root {
+  --background-primary: #1e1e1e;
+  --background-secondary: #262626;
+  --background-modifier-border: #363636;
+  --background-modifier-hover: rgba(255,255,255,0.075);
+  --text-normal: #dadada;
+  --text-muted: #b3b3b3;
+  --text-faint: #666666;
+  --text-on-accent: #fff;
+  --text-warning: #d4a72c;
+  --interactive-accent: #7b6cd9;
+  --font-ui-small: 13px;
+  --font-ui-smaller: 12px;
+  --font-monospace: ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-m: 8px;
+  --shadow-s: 0 1px 6px rgba(0,0,0,0.4);
+  --size-4-1: 4px; --size-4-2: 8px; --size-4-4: 16px;
+}
+body { margin: 0; background: var(--background-primary); color: var(--text-normal); font: 13px -apple-system, "Segoe UI", sans-serif; }
+#pane { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+button, select, input { font: inherit; color: var(--text-normal); background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 2px 8px; }
+input[type="range"] { padding: 0; }
+input[type="checkbox"] { padding: 0; }
+button:disabled { opacity: 0.45; }
+</style>
+</head>
+<body>
+<div id="pane"></div>
+<script src="bundle-ui.js"></script>
+</body>
+</html>
