@@ -49,6 +49,8 @@ export class BrainView extends ItemView {
 	private replayBtn!: HTMLButtonElement;
 	private neighborhood: string | null = null;
 	private filterBtn!: HTMLButtonElement;
+	private clearBtn!: HTMLButtonElement;
+	private clearAllFilters: () => void = () => {};
 	private hits: string[] = [];
 	private hitAt = -1;
 	private history: string[] = [];
@@ -157,6 +159,7 @@ export class BrainView extends ItemView {
 		this.historyList = searchRow.createEl("datalist", { attr: { id: "llm-wiki-brain-history" } });
 		let timer = 0;
 		this.search.addEventListener("input", () => {
+			this.syncClear();
 			window.clearTimeout(timer);
 			timer = window.setTimeout(() => this.applySearch(false), 160);
 		});
@@ -174,6 +177,7 @@ export class BrainView extends ItemView {
 			b.addEventListener("click", fn);
 			return b;
 		};
+		this.clearBtn = small("✕", this.t("filters.clear"), () => this.clearAllFilters()); // right after the search box: clears the filters and the search
 		small("‹", this.t("search.prev.aria"), () => this.stepHit(-1));
 		small("›", this.t("search.next.aria"), () => this.stepHit(1));
 		small(this.t("search.copy"), this.t("search.copy.title"), () => this.copyHits());
@@ -270,12 +274,13 @@ export class BrainView extends ItemView {
 			this.applySearch(false);
 		};
 		const clear = this.panel.createEl("button", { text: this.t("filters.clear") });
-		clear.addEventListener("click", () => {
+		this.clearAllFilters = () => {
 			this.filters = { ...DEFAULT_FILTERS, hidden: [] };
 			this.neighborhood = null;
 			this.search.value = "";
 			showFilters();
-		});
+		};
+		clear.addEventListener("click", () => this.clearAllFilters());
 
 		// Saved views: the filters and the search, under a name.
 		const views = this.panel.createDiv({ cls: "llm-wiki-brain-field llm-wiki-brain-views" });
@@ -479,11 +484,21 @@ export class BrainView extends ItemView {
 		const f = this.filters;
 		const active = [f.folder, f.tag, f.minDeg, f.maxDeg, f.orphansOnly, f.days, f.createdDays, f.invert, f.op, this.neighborhood, f.hidden.length].filter(Boolean).length;
 		this.filterBtn?.setText(active ? this.t("filters.buttonActive", { n: active }) : this.t("filters.button"));
+		this.syncClear(active);
+	}
+
+	/** The clear button next to the search box is only live when there is something to clear. */
+	private syncClear(active?: number): void {
+		if (!this.clearBtn) return;
+		const f = this.filters;
+		const n = active ?? [f.folder, f.tag, f.minDeg, f.maxDeg, f.orphansOnly, f.days, f.createdDays, f.invert, f.op, this.neighborhood, f.hidden.length].filter(Boolean).length;
+		this.clearBtn.disabled = n === 0 && !this.search.value.trim();
 	}
 
 	private applySearch(ask: boolean): void {
 		if (!this.engine || !this.graph) return;
 		const q = this.search.value.trim();
+		this.syncClear();
 		if (!q) {
 			this.engine.setMatch(null);
 			this.hits = [];
