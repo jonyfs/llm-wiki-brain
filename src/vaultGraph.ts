@@ -23,6 +23,12 @@ export interface BrainSettings {
 	pinned: string[];
 	onboarded: boolean;
 	explorerHover: boolean;
+	showPerf: boolean;
+	labelScale: number;
+	ghosts: boolean;
+	recentRing: boolean;
+	history: string[];
+	schema: number;
 }
 
 export const DEFAULT_SETTINGS: BrainSettings = {
@@ -42,6 +48,12 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	pinned: [],
 	onboarded: false,
 	explorerHover: true,
+	showPerf: false,
+	labelScale: 1,
+	ghosts: true,
+	recentRing: false,
+	history: [],
+	schema: 3,
 };
 
 const FOLDER_TYPES: Record<string, PageType> = {
@@ -82,6 +94,8 @@ export interface PageMeta {
 	folder: string;
 	tags: string[];
 	text: string; // lower-case name, path, headings and tags for search
+	outs: string[]; // lower-case names of the pages this one links to
+	ins: string[]; // lower-case names of the pages that link here
 	headings: string; // lower-case headings
 	props: Record<string, string>; // frontmatter, lower-cased keys
 }
@@ -95,6 +109,8 @@ export interface VaultGraph {
 	orphans: string[];
 	broken: string[];
 	untyped: string[];
+	truncated: number; // pages left out because of the node limit
+	rootMissing: boolean; // the wiki folder has no notes
 }
 
 function normTag(t: string): string {
@@ -151,6 +167,8 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 		meta.set(f.path, {
 			folder: rel.includes("/") ? rel.split("/")[0] : "",
 			tags: Array.from(new Set(tags)),
+			outs: [],
+			ins: [],
 			text: [f.path, ...(cache?.headings ?? []).map((h) => h.heading), ...tags].join(" ").toLowerCase(),
 			headings: (cache?.headings ?? []).map((h) => h.heading).join(" ").toLowerCase(),
 			props: frontmatterProps(cache?.frontmatter),
@@ -161,6 +179,12 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	// File dates collapse in vaults restored from Git or iCloud: then the log says what came first.
 	const times = creationTimes(pages.map((p) => ({ path: p.path, label: p.label, ctime: p.ctime })), logText);
 	for (const p of pages) p.ctime = times.get(p.path) ?? p.ctime;
+	const label = new Map(pages.map((p) => [p.path, p.label.toLowerCase()]));
+	for (const [a, b] of links) {
+		if (!keep.has(a) || !keep.has(b)) continue;
+		meta.get(a)?.outs.push(label.get(b) ?? "");
+		meta.get(b)?.ins.push(label.get(a) ?? "");
+	}
 	const special = new Set(pages.filter((p) => p.isIndex || p.isLog).map((p) => p.path));
 	return {
 		pages,
@@ -171,6 +195,8 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 		orphans: files.filter((f) => !deg.get(f.path) && !special.has(f.path)).map((f) => f.path),
 		broken: files.filter((f) => Object.keys(unresolved[f.path] ?? {}).length > 0).map((f) => f.path),
 		untyped: files.filter((f) => !special.has(f.path) && !declaredType(app, f)).map((f) => f.path),
+		truncated: Math.max(0, all.length - files.length),
+		rootMissing: all.length === 0 && s.wikiRoot.trim() !== "",
 	};
 }
 
@@ -211,7 +237,7 @@ export function matchQuery(graph: VaultGraph, query: string, now = Date.now()): 
 		if (p.isIndex) flags.push("index");
 		if (p.isLog) flags.push("log");
 		if ((deg.get(p.path) ?? 0) >= 8) flags.push("hub");
-		const page = { path: p.path, label: p.label, tags: m.tags, type: p.type, text: m.text, headings: m.headings, degree: deg.get(p.path) ?? 0, ctime: p.ctime, mtime: p.mtime, props: m.props, flags };
+		const page = { path: p.path, label: p.label, tags: m.tags, type: p.type, text: m.text, headings: m.headings, degree: deg.get(p.path) ?? 0, ctime: p.ctime, mtime: p.mtime, props: m.props, flags, outs: m.outs, ins: m.ins };
 		if (matchesQuery(terms, page, now)) out.add(p.path);
 	}
 	// Nothing matched: fall back to fuzzy file names for a plain one-word query ("kvcch" finds "kv-cache").

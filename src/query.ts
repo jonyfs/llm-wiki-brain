@@ -22,9 +22,11 @@ export interface QueryPage {
 	mtime?: number;
 	props?: Record<string, string>; // frontmatter, lower-cased keys, values joined with ","
 	flags?: string[]; // orphan, broken, untyped, index, log, hub
+	outs?: string[]; // lower-case names of the pages this one links to
+	ins?: string[]; // lower-case names of the pages that link here
 }
 
-type Key = "" | "path" | "file" | "tag" | "type" | "heading" | "links" | "created" | "edited" | "prop" | "is";
+type Key = "" | "path" | "file" | "tag" | "type" | "heading" | "links" | "created" | "edited" | "prop" | "is" | "to" | "from";
 
 export interface Term {
 	key: Key;
@@ -60,7 +62,7 @@ export function parseQuery(q: string): Term[][] {
 			not = true;
 			t = t.slice(1);
 		}
-		const m = /^(path|file|tag|type|heading|links|created|edited|prop|is):(.*)$/.exec(t);
+		const m = /^(path|file|tag|type|heading|links|created|edited|prop|is|to|from):(.*)$/.exec(t);
 		const value = m ? m[2] : t;
 		if (!value) continue; // "tag:" with nothing yet, typed halfway
 		groups[groups.length - 1].push({ key: (m ? m[1] : "") as Key, value, not });
@@ -86,7 +88,12 @@ export function numberTest(v: string): ((n: number) => boolean) | null {
 }
 
 /** Age or date comparison: `<7d` is newer than a week, `>30d` older than a month, `>2026-01-01` after that day. */
+/** Words for the common ages, in the four languages of the plugin. */
+const AGE_WORDS: Record<string, string> = { today: "1d", hoje: "1d", hoy: "1d", "aujourd'hui": "1d", week: "7d", semana: "7d", semaine: "7d", month: "30d", mes: "30d", mois: "30d", year: "365d", ano: "365d", año: "365d", an: "365d" };
+
 export function dateTest(v: string, now: number): ((t: number) => boolean) | null {
+	const word = /^(>=|<=|>|<|=)?(.+)$/.exec(v);
+	if (word && AGE_WORDS[word[2]]) v = (word[1] ?? "<") + AGE_WORDS[word[2]];
 	const m = /^(>=|<=|>|<|=)?(?:(\d+)([dwmy])|(\d{4})-(\d{2})-(\d{2}))$/.exec(v);
 	if (!m) return null;
 	const op = m[1] ?? (m[2] ? "<" : "="); // a bare age means "younger than", a bare date means "that day"
@@ -136,8 +143,20 @@ function hit(t: Term, p: QueryPage, now: number): boolean {
 			return !!f && time !== undefined && f(time);
 		}
 		case "prop": return propHit(t.value, p.props);
+		case "to": return (p.outs ?? []).some((x) => x.includes(t.value)); // links to a page whose name has this
+		case "from": return (p.ins ?? []).some((x) => x.includes(t.value)); // is linked from such a page
 		case "is": return (p.flags ?? []).includes(t.value);
-		default: return p.text.includes(t.value);
+		default: {
+			const re = /^\/(.+)\/$/.exec(t.value); // /regex/ against the name, path, headings and tags
+			if (re) {
+				try {
+					return new RegExp(re[1], "i").test(p.text);
+				} catch {
+					return false; // half-typed pattern
+				}
+			}
+			return p.text.includes(t.value);
+		}
 	}
 }
 
@@ -164,4 +183,25 @@ export function fuzzyScore(needle: string, hay: string): number {
 /** `[[name]]` lines for a list of note paths, the way you would paste them into a note. */
 export function toWikiLinks(paths: string[]): string {
 	return paths.map((p) => "[[" + p.replace(/\.md$/i, "") + "]]").join("\n");
+}
+
+const KEYS = ["path:", "file:", "tag:", "type:", "heading:", "links:", "created:", "edited:", "prop:", "is:", "to:", "from:"];
+const IS_VALUES = ["orphan", "broken", "untyped", "index", "log", "hub"];
+
+/** Whole-query completions for what is being typed: a key prefix, or a value of `is:`, `type:`, `tag:`, `path:`. At most `max`. */
+export function suggest(query: string, vocab: { tags: string[]; folders: string[]; types: string[] }, max = 8): string[] {
+	const m = /^(.*?)(-?)([^\s"]*)$/.exec(query);
+	if (!m) return [];
+	const head = m[1], neg = m[2], cur = m[3].toLowerCase();
+	if (!cur) return [];
+	const out: string[] = [];
+	const colon = cur.indexOf(":");
+	if (colon < 0) {
+		for (const k of KEYS) if (k.startsWith(cur) && k !== cur) out.push(head + neg + k);
+	} else {
+		const key = cur.slice(0, colon + 1), val = cur.slice(colon + 1);
+		const pool = key === "is:" ? IS_VALUES : key === "type:" ? vocab.types : key === "tag:" ? vocab.tags.map((t) => t.replace(/^#/, "")) : key === "path:" ? vocab.folders : [];
+		for (const v of pool) if (v.toLowerCase().startsWith(val) && v.toLowerCase() !== val) out.push(head + neg + key + (/\s/.test(v) ? '"' + v + '"' : v));
+	}
+	return out.slice(0, max);
 }

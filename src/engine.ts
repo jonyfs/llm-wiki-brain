@@ -1,6 +1,7 @@
 /* Brain engine: Canvas 2D with real perspective, depth sorting and neuron-shaped nodes.
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
+import { convexHull, neighbourInDirection } from "./hull";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
@@ -37,6 +38,7 @@ export interface NodeInfo {
 }
 
 export interface FlowOptions {
+	from?: string; // start here instead of the index
 	to?: string;
 	mode?: "created" | "edited" | "selected";
 	viewOnly?: boolean;
@@ -54,7 +56,7 @@ export interface EngineOptions {
 	ambient: () => number; // 0 off, 1 calm, 2 lively
 	flowSpeed: () => number; // 0.6 slow, 1 normal, 1.6 fast
 	detail: () => "auto" | "high" | "simple"; // auto adapts to frame time, high keeps full neurons, simple keeps spheres
-	onOpen: (path: string) => void;
+	onOpen: (path: string, split?: boolean) => void;
 	onHover: (path: string | null, ev?: PointerEvent) => void;
 	onSelect: (info: NodeInfo | null) => void;
 	onStatus: (msg: string) => void;
@@ -62,7 +64,11 @@ export interface EngineOptions {
 	onSettled?: () => void; // the layout stopped moving: a good moment to save it
 	onPin?: (paths: string[]) => void; // the set of pinned pages changed
 	onReplay?: (step: { i: number; n: number; time: number; path: string } | null) => void; // a page just came back (null: the replay ended)
-	text: (key: "status.replayDone" | "status.drawFailed", vars?: Record<string, string | number>) => string;
+	text: (key: "status.replayDone" | "status.drawFailed" | "sel.count", vars?: Record<string, string | number>) => string;
+	onMulti?: (paths: string[]) => void; // more than one page is selected (empty: back to at most one)
+	onContext?: (path: string | null, ev: MouseEvent) => void;
+	onHelp?: () => void;
+	labelScale?: () => number;
 }
 
 interface Cell {
@@ -83,6 +89,8 @@ interface Cell {
 	vy: number;
 	vz: number;
 	pinned?: boolean;
+	vt: PageType; // the type whose colour it shows (the colour-by option remaps it)
+	sz: number; // size multiplier (the size-by option)
 	deg: number;
 	adj: number[];
 	pulse: number;
@@ -225,6 +233,13 @@ export class BrainEngine {
 	private signals: Signal[] = [];
 	private net: Net | null = null;
 	private pinnedSet = new Set<string>();
+	private multi = new Set<number>();
+	private area: { x0: number; y0: number; x1: number; y1: number } | null = null;
+	private ghosts = true;
+	private recent = false;
+	private selStats = { pages: 0, links: 0, orphans: 0 };
+	private pickGrid = new Map<number, Cell[]>();
+	private pickCell = 48;
 	private mutual: boolean[] = [];
 	private leakAt = 0;
 	private packets: Packet[] = [];
@@ -348,7 +363,7 @@ export class BrainEngine {
 		for (const [pi, p] of pages.entries()) {
 			const prev = old.get(p.path);
 			if (prev) {
-				Object.assign(prev, { din: 0, type: p.type, label: p.label, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog, deg: 0, adj: [] as number[] });
+				Object.assign(prev, { din: 0, vt: p.type, type: p.type, label: p.label, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog, deg: 0, adj: [] as number[] });
 				next.push(prev);
 				byPath.set(p.path, prev);
 				continue;
@@ -367,7 +382,7 @@ export class BrainEngine {
 			const kept = saved?.[p.path];
 			if (kept && kept.length >= 3) pos = [kept[0], kept[1], kept[2]]; // where it was left last time
 			next.push({
-				id: 0, path: p.path, label: p.label, type: p.type, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
+				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
 				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
@@ -530,7 +545,10 @@ export class BrainEngine {
 	}
 
 	private select(id: number): void {
-		if (id === this.selected) return;
+		if (this.multi.size) {
+			this.multi.clear();
+			this.opts.onMulti?.([]);
+		} else if (id === this.selected) return;
 		this.selected = id;
 		this.opts.onSelect(id >= 0 ? this.infoOf(id) : null);
 		this.start();
@@ -621,7 +639,7 @@ export class BrainEngine {
 
 	/** Index to a page: along the links when a route exists, otherwise an arc that stands for the missing link. */
 	playFlow(o: FlowOptions = {}): FlowResult | null {
-		const from = this.indexCell();
+		const from = o.from ? this.byPath.get(o.from) ?? null : this.indexCell();
 		if (!from) return null;
 		let target: Cell | undefined;
 		if (o.to) target = this.byPath.get(o.to);
@@ -647,6 +665,134 @@ export class BrainEngine {
 		from.lit = this.tNow + 2500;
 		this.start();
 		return { from: from.path, to: target.path, hops: segs.length, virtual: !route };
+	}
+
+	/** Colour pages by something other than their type: `cat` gives 0..3 per page (null restores the types). */
+	setColorBy(cat: Map<string, number> | null): void {
+		for (const n of this.nodes) n.vt = cat && cat.has(n.path) ? TYPES[Math.max(0, Math.min(TYPES.length - 1, cat.get(n.path) as number))] : n.type;
+		this.start();
+	}
+
+	/** Size multipliers per page (null restores 1). */
+	setSizeBy(f: Map<string, number> | null): void {
+		for (const n of this.nodes) n.sz = f?.get(n.path) ?? 1;
+		this.start();
+	}
+
+	refreshLabels(): void {
+		this.start();
+	}
+
+	setGhosts(on: boolean): void {
+		this.ghosts = on;
+		this.start();
+	}
+
+	setRecent(on: boolean): void {
+		this.recent = on;
+		this.start();
+	}
+
+	camera(): { yaw: number; pitch: number; zoom: number; panX: number; panY: number } {
+		return { yaw: this.yaw, pitch: this.pitch, zoom: this.tz, panX: this.tpx, panY: this.tpy };
+	}
+
+	setCamera(c: Partial<{ yaw: number; pitch: number; zoom: number; panX: number; panY: number }>): void {
+		if (typeof c.yaw === "number") this.yaw = c.yaw;
+		if (typeof c.pitch === "number") this.pitch = clamp(c.pitch, -1.25, 1.25);
+		if (typeof c.zoom === "number") this.zoom = this.tz = clamp(c.zoom, 0.55, 4);
+		if (typeof c.panX === "number") this.panX = this.tpx = c.panX;
+		if (typeof c.panY === "number") this.panY = this.tpy = c.panY;
+		this.auto = false;
+		this.start();
+	}
+
+	/** A named viewpoint: 1 front, 2 top, 3 side. */
+	preset(k: 1 | 2 | 3): void {
+		this.auto = false;
+		this.yaw = k === 3 ? Math.PI / 2 : 0;
+		this.pitch = k === 2 ? 1.25 : 0;
+		this.start();
+	}
+
+	/** Paths of every selected page (one, or several). */
+	selection(): string[] {
+		if (this.multi.size > 1) return Array.from(this.multi).map((i) => this.nodes[i].path);
+		return this.selected >= 0 ? [this.nodes[this.selected].path] : [];
+	}
+
+	setSelection(paths: string[]): void {
+		const ids = paths.map((p) => this.byPath.get(p)).filter((n): n is Cell => !!n && !n.off).map((n) => n.id);
+		this.applyMulti(ids);
+	}
+
+	private applyMulti(ids: number[]): void {
+		this.multi = new Set(ids);
+		if (ids.length > 1) {
+			this.selected = ids[ids.length - 1];
+			const inside = new Set(ids);
+			let links = 0;
+			for (const e of this.edges) if (inside.has(e[0]) && inside.has(e[1])) links++;
+			this.selStats = { pages: ids.length, links, orphans: ids.filter((i) => this.nodes[i].deg === 0).length };
+			this.opts.onSelect(null);
+			this.opts.onMulti?.(ids.map((i) => this.nodes[i].path));
+		} else {
+			this.multi.clear();
+			this.selected = ids.length ? ids[0] : -1;
+			this.opts.onMulti?.([]);
+			this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
+		}
+		this.start();
+	}
+
+	private toggleMulti(id: number): void {
+		const cur = this.multi.size ? Array.from(this.multi) : this.selected >= 0 ? [this.selected] : [];
+		const at = cur.indexOf(id);
+		if (at >= 0) cur.splice(at, 1);
+		else cur.push(id);
+		this.applyMulti(cur);
+	}
+
+	/** The lobe under a screen point, or -1 (uses the same ellipses the cloud is drawn with). */
+	private lobeAt(x: number, y: number): number {
+		let best = -1, bs = 1e9;
+		LOBES.forEach((L, i) => {
+			const a = L.c[0] * this.camCy + L.c[2] * this.camSy, z1 = -L.c[0] * this.camSy + L.c[2] * this.camCy;
+			const b = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+			const cx = this.W / 2 + this.panX + a * p * this.S0, cy = this.H / 2 + this.panY + b * p * this.S0;
+			const rx = Math.max(L.r[0], L.r[2]) * p * this.S0, ry = L.r[1] * p * this.S0;
+			const q = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
+			if (q < 1 && q < bs) {
+				bs = q;
+				best = i;
+			}
+		});
+		return best;
+	}
+
+	/** Replay position, for a timeline: how many pages are back out of how many. */
+	replayInfo(): { i: number; n: number } | null {
+		const rp = this.replayState;
+		return rp ? { i: rp.i + rp.base, n: rp.ids.length + rp.base } : null;
+	}
+
+	/** Jump the replay to `i` pages back (0..n), and pause there. */
+	seekReplay(i: number): void {
+		const rp = this.replayState;
+		if (!rp) return;
+		const k = clamp(Math.round(i) - rp.base, 0, rp.ids.length);
+		rp.ids.forEach((id, j) => {
+			const n = this.nodes[id];
+			n.replayHidden = j >= k;
+			n.off = n.replayHidden || n.typeHidden || n.filtered;
+		});
+		rp.i = k;
+		rp.paused = true;
+		this.packets = [];
+		this.applyVisibility();
+		const last = k > 0 ? this.nodes[rp.ids[k - 1]] : null;
+		if (last) this.opts.onReplay?.({ i: k + rp.base, n: rp.ids.length + rp.base, time: last[rp.key], path: last.path });
+		this.start();
 	}
 
 	setPinned(paths: string[]): void {
@@ -1001,6 +1147,10 @@ export class BrainEngine {
 			if (this.pts.size === 1) {
 				this.down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
 				this.panning = e.button === 1 || e.button === 2 || e.shiftKey;
+				if (e.altKey && e.button === 0 && !this.panning) {
+					const q = toCanvas(e);
+					this.area = { x0: q.x, y0: q.y, x1: q.x, y1: q.y }; // Alt+drag draws a rectangle that selects what is inside
+				}
 				this.dragging = true;
 				this.vyaw = this.vpitch = 0;
 				this.hist = [];
@@ -1039,6 +1189,13 @@ export class BrainEngine {
 				return;
 			}
 			if (this.down && Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > (e.pointerType === "mouse" ? 4 : 10)) this.down.moved = true;
+			if (this.area) {
+				const q = toCanvas(e);
+				this.area.x1 = q.x;
+				this.area.y1 = q.y;
+				this.start();
+				return;
+			}
 			if (this.down?.moved) {
 				if (this.panning) {
 					this.panX += dx * (this.W / r.width);
@@ -1064,6 +1221,20 @@ export class BrainEngine {
 			this.dragging = false;
 			this.panning = false;
 			const now = performance.now();
+			if (this.area) {
+				const a = this.area;
+				this.area = null;
+				if (this.down?.moved) {
+					const x0 = Math.min(a.x0, a.x1), x1 = Math.max(a.x0, a.x1), y0 = Math.min(a.y0, a.y1), y1 = Math.max(a.y0, a.y1);
+					this.applyMulti(this.nodes.filter((n) => !n.off && n.px >= x0 && n.px <= x1 && n.py >= y0 && n.py <= y1).map((n) => n.id));
+				} else if (this.pick(e) < 0) {
+					const q = toCanvas(e), l = this.lobeAt(q.x, q.y); // Alt+click on the cloud selects the whole lobe
+					if (l >= 0) this.applyMulti(this.nodes.filter((n) => !n.off && n.lobe === l).map((n) => n.id));
+				}
+				this.down = null;
+				this.start();
+				return;
+			}
 			if (this.down && !this.down.moved && e.type === "pointerup" && now - this.down.t < 500) {
 				const h = this.pick(e);
 				const dbl = this.lastTap && now - this.lastTap.t < 320 && Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 24;
@@ -1071,11 +1242,12 @@ export class BrainEngine {
 					if (h >= 0) {
 						this.select(h);
 						this.flyTo(this.nodes[h]);
-						this.opts.onOpen(this.nodes[h].path);
+						this.opts.onOpen(this.nodes[h].path, e.metaKey || e.ctrlKey);
 					} else this.resetView();
 					this.lastTap = null;
 				} else {
-					this.select(h === this.selected ? -1 : h); // click selects and keeps the selection; click again or on empty space clears
+					if ((e.metaKey || e.ctrlKey) && h >= 0) this.toggleMulti(h); // Ctrl/Cmd+click adds or removes a page
+					else this.select(h === this.selected && !this.multi.size ? -1 : h); // click selects and keeps the selection; click again or on empty space clears
 					this.lastTap = { x: e.clientX, y: e.clientY, t: now };
 				}
 			} else if (this.down?.moved && !this.opts.reducedMotion && this.hist.length > 1) {
@@ -1099,7 +1271,12 @@ export class BrainEngine {
 				this.start();
 			}
 		});
-		on("contextmenu", (e) => e.preventDefault());
+		on("contextmenu", (e) => {
+			e.preventDefault();
+			const h = this.pick(e);
+			if (h >= 0 && h !== this.selected && !this.multi.has(h)) this.select(h);
+			this.opts.onContext?.(h >= 0 ? this.nodes[h].path : null, e);
+		});
 		on("wheel", (e) => {
 			e.preventDefault();
 			const p = toCanvas(e);
@@ -1108,7 +1285,13 @@ export class BrainEngine {
 		on("keydown", (e) => {
 			const k = e.key, step = 0.12;
 			let ok = true;
-			if (k === "ArrowLeft") this.yaw -= step;
+			if (e.altKey && k.startsWith("Arrow") && this.selected >= 0) { // Alt+arrow: hop to the neighbour in that direction
+				const me = this.nodes[this.selected], dx = k === "ArrowLeft" ? -1 : k === "ArrowRight" ? 1 : 0, dy = k === "ArrowUp" ? -1 : k === "ArrowDown" ? 1 : 0;
+				const next = neighbourInDirection([me.px, me.py], me.adj.filter((j) => !this.nodes[j].off).map((j) => ({ id: j, x: this.nodes[j].px, y: this.nodes[j].py })), dx, dy);
+				if (next !== null) this.select(next);
+			} else if (k === "?") this.opts.onHelp?.();
+			else if (k === "1" || k === "2" || k === "3") this.preset(Number(k) as 1 | 2 | 3);
+			else if (k === "ArrowLeft") this.yaw -= step;
 			else if (k === "ArrowRight") this.yaw += step;
 			else if (k === "ArrowUp") this.pitch = clamp(this.pitch - step, -1.25, 1.25);
 			else if (k === "ArrowDown") this.pitch = clamp(this.pitch + step, -1.25, 1.25);
@@ -1119,7 +1302,7 @@ export class BrainEngine {
 			else if (k === "Escape") this.select(-1);
 			else if (k === "Enter" && this.selected >= 0) {
 				this.flyTo(this.nodes[this.selected]);
-				this.opts.onOpen(this.nodes[this.selected].path);
+				this.opts.onOpen(this.nodes[this.selected].path, e.metaKey || e.ctrlKey);
 			} else if (k === "]" || k === "[" || k === "n" || k === "p") {
 				const hubs = this.nodes.filter((n) => !n.off).sort((a, b) => b.deg - a.deg);
 				if (hubs.length) {
@@ -1140,14 +1323,22 @@ export class BrainEngine {
 		const x = (e.clientX - r.left) * (this.W / r.width), y = (e.clientY - r.top) * (this.H / r.height);
 		const pad = (e.pointerType === "touch" ? 22 : 12) * this.dpr;
 		let best = -1, bd = 1e9;
-		for (const n of this.nodes) {
-			if (n.off) continue;
+		const test = (n: Cell) => {
+			if (n.off) return;
 			const d = Math.hypot(n.px - x, n.py - y) - n.pr;
 			if (d < pad && d < bd) {
 				bd = d;
 				best = n.id;
 			}
-		}
+		};
+		if (this.nodes.length > 800) { // thousands: look only at the screen cells around the pointer
+			const c = this.pickCell * this.dpr, reach = Math.ceil((pad + 40 * this.dpr) / c);
+			const cx = Math.floor(x / c), cy = Math.floor(y / c);
+			for (let i = -reach; i <= reach; i++) for (let j = -reach; j <= reach; j++) {
+				const cell = this.pickGrid.get((cx + i) * 4096 + (cy + j));
+				if (cell) for (const n of cell) test(n);
+			}
+		} else for (const n of this.nodes) test(n);
 		return best;
 	}
 
@@ -1385,7 +1576,18 @@ export class BrainEngine {
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
-			n.pr = (2.1 + Math.sqrt(n.deg) * 1.2 + n.pulse * 6) * p * rk * (n.isIndex ? 1.5 : 1);
+			n.pr = (2.1 + Math.sqrt(n.deg) * 1.2 + n.pulse * 6) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz;
+		}
+		if (this.nodes.length > 800) {
+			this.pickGrid.clear();
+			const c = this.pickCell * this.dpr;
+			for (const n of this.nodes) {
+				if (n.off) continue;
+				const k = Math.floor(n.px / c) * 4096 + Math.floor(n.py / c);
+				const l = this.pickGrid.get(k);
+				if (l) l.push(n);
+				else this.pickGrid.set(k, [n]);
+			}
 		}
 	}
 
@@ -1405,6 +1607,53 @@ export class BrainEngine {
 			ctx.moveTo(c[0], c[1]);
 			ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
 		}
+	}
+
+	/** The area being dragged, and for a group of pages: a dashed outline around them and a counter. */
+	private drawSelection(): void {
+		const ctx = this.ctx, dpr = this.dpr;
+		if (this.area) {
+			const a = this.area;
+			ctx.fillStyle = "rgba(" + this.edgeRGB + ",0.12)";
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.8)";
+			ctx.lineWidth = dpr;
+			ctx.setLineDash([5 * dpr, 4 * dpr]);
+			ctx.fillRect(Math.min(a.x0, a.x1), Math.min(a.y0, a.y1), Math.abs(a.x1 - a.x0), Math.abs(a.y1 - a.y0));
+			ctx.strokeRect(Math.min(a.x0, a.x1), Math.min(a.y0, a.y1), Math.abs(a.x1 - a.x0), Math.abs(a.y1 - a.y0));
+			ctx.setLineDash([]);
+		}
+		if (this.multi.size < 2) return;
+		const pts: [number, number][] = [];
+		let top = 1e9, cx = 0;
+		for (const id of this.multi) {
+			const n = this.nodes[id];
+			if (n.off) continue;
+			pts.push([n.px, n.py]);
+			cx += n.px;
+			top = Math.min(top, n.py - n.pr);
+		}
+		if (pts.length < 2) return;
+		const hull = convexHull(pts);
+		ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.75)";
+		ctx.fillStyle = "rgba(" + this.edgeRGB + ",0.07)";
+		ctx.lineWidth = dpr * 1.4;
+		ctx.lineJoin = "round";
+		ctx.setLineDash([6 * dpr, 4 * dpr]);
+		ctx.beginPath();
+		hull.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+		ctx.closePath();
+		ctx.fill();
+		ctx.stroke();
+		ctx.setLineDash([]);
+		ctx.font = "600 " + Math.round(12 * dpr) + "px " + (getComputedStyle(this.canvas).fontFamily || "system-ui, sans-serif");
+		ctx.textAlign = "center";
+		const label = this.opts.text("sel.count", { pages: this.selStats.pages, links: this.selStats.links, orphans: this.selStats.orphans });
+		const y = top - 12 * dpr;
+		ctx.lineWidth = 4 * dpr;
+		ctx.strokeStyle = this.bgColor;
+		ctx.strokeText(label, cx / pts.length, y);
+		ctx.fillStyle = this.labelColor;
+		ctx.fillText(label, cx / pts.length, y);
 	}
 
 	private draw(): void {
@@ -1485,6 +1734,18 @@ export class BrainEngine {
 			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
 		} else for (const n of order) full[n.id] = 1;
 		let rings = 400; // pulse rings are a stroke each: a vault that just loaded must not draw ten thousand
+		if (this.ghosts && nodes.some((n) => n.filtered)) { // where the filtered-out pages are: faint dots
+			ctx.globalAlpha = 0.2;
+			ctx.fillStyle = "rgb(" + this.edgeRGB + ")";
+			ctx.beginPath();
+			for (const n of nodes) {
+				if (!n.off || !n.filtered || n.typeHidden || n.replayHidden || n.px < 0 || n.px > this.W || n.py < 0 || n.py > this.H) continue;
+				ctx.moveTo(n.px + 1.7 * dpr, n.py);
+				ctx.arc(n.px, n.py, 1.7 * dpr, 0, 6.2832);
+			}
+			ctx.fill();
+			ctx.globalAlpha = 1;
+		}
 		for (const n of order) {
 			if (n.off || n.px < -m || n.px > this.W + m || n.py < -m || n.py > this.H + m) continue;
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
@@ -1495,11 +1756,11 @@ export class BrainEngine {
 			ctx.globalAlpha = al;
 			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
 			if (this.quality > 0 && n.pr > 4.5 * dpr && (full[n.id] === 1 || special)) {
-				const gl = this.glowSprites[n.type];
+				const gl = this.glowSprites[n.vt];
 				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
 				this.drawSoma(n, al);
 			} else {
-				const sp = this.sprites[n.type];
+				const sp = this.sprites[n.vt];
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
 			}
 			const charge = this.net && this.quality > 0 ? this.net.charge(n.id) : 0;
@@ -1515,13 +1776,33 @@ export class BrainEngine {
 			if (n.pulse > 0.08 && this.quality > 0 && (rings-- > 0 || special)) {
 				ctx.globalAlpha = n.pulse * 0.5 * al;
 				ctx.lineWidth = dpr;
-				ctx.strokeStyle = "rgb(" + this.palRGB[n.type] + ")";
+				ctx.strokeStyle = "rgb(" + this.palRGB[n.vt] + ")";
 				ctx.beginPath();
 				ctx.arc(n.px, n.py, n.pr * (1.3 + (1 - n.pulse) * 2.4), 0, 6.2832);
 				ctx.stroke();
 			}
 			ctx.globalAlpha = 1;
-			if (n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match)) {
+			if (fn && nb[n.id] && n.id !== f) { // the page in focus lights its neighbours with a halo
+				ctx.globalAlpha = 0.7;
+				ctx.lineWidth = dpr * 1.3;
+				ctx.strokeStyle = "rgb(" + this.edgeRGB + ")";
+				ctx.beginPath();
+				ctx.arc(n.px, n.py, n.pr * 1.6 + dpr * 3, 0, 6.2832);
+				ctx.stroke();
+				ctx.globalAlpha = 1;
+			}
+			if (this.recent && Date.now() - n.mtime < 86400000) { // edited in the last day
+				ctx.globalAlpha = 0.8;
+				ctx.lineWidth = dpr * 1.1;
+				ctx.strokeStyle = "rgb(" + this.palRGB.synthesis + ")";
+				ctx.setLineDash([2 * dpr, 2 * dpr]);
+				ctx.beginPath();
+				ctx.arc(n.px, n.py, n.pr * 1.25 + dpr * 2, 0, 6.2832);
+				ctx.stroke();
+				ctx.setLineDash([]);
+				ctx.globalAlpha = 1;
+			}
+			if (n.id === f || n.id === this.selected || this.multi.has(n.id) || this.tNow < n.lit || (this.matchActive && n.match)) {
 				ctx.lineWidth = dpr * (n.id === this.selected ? 2.2 : 1.5);
 				ctx.strokeStyle = this.labelColor;
 				ctx.beginPath();
@@ -1540,6 +1821,7 @@ export class BrainEngine {
 		}
 		this.drawSignals(fn, f);
 		this.drawPackets();
+		this.drawSelection();
 		this.drawLabels(f, fn, nb);
 	}
 
@@ -1583,7 +1865,7 @@ export class BrainEngine {
 		const ctx = this.ctx, dpr = this.dpr;
 		for (const p of this.packets) {
 			if (p.done) continue;
-			const type = this.nodes[p.segs[p.seg][0]].type, col = this.palRGB[type] ?? "255,255,255";
+			const type = this.nodes[p.segs[p.seg][0]].vt, col = this.palRGB[type] ?? "255,255,255";
 			for (let i = 10; i >= 0; i--) { // trail: earlier positions along the route, fading
 				let tt = p.t - i * 0.05, sg = p.seg;
 				while (tt < 0 && sg > 0) {
@@ -1630,7 +1912,7 @@ export class BrainEngine {
 			ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
 		}
 		ctx.closePath();
-		const st = this.somaStops[n.type] ?? ["#fff", "#888", "#000"];
+		const st = this.somaStops[n.vt] ?? ["#fff", "#888", "#000"];
 		const g = ctx.createRadialGradient(n.px - R * 0.25, n.py - R * 0.3, R * 0.05, n.px, n.py, R * 1.25);
 		g.addColorStop(0, st[0]);
 		g.addColorStop(0.45, st[1]);
@@ -1655,7 +1937,7 @@ export class BrainEngine {
 	private drawDendrites(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr;
 		if (!this.denVisible(n)) return;
-		const k = this.denScale(n), col = this.palRGB[n.type] ?? "255,255,255";
+		const k = this.denScale(n), col = this.palRGB[n.vt] ?? "255,255,255";
 		const real = this.quality > 1 && n.pr > 6 * dpr; // spines and branch forks only when the cell is big enough to show them
 		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1);
 		for (const used of [false, true]) {
@@ -1745,7 +2027,7 @@ export class BrainEngine {
 		const g = this.axonGeom(n);
 		if (!g) return;
 		const { hx, hy, ux, uy, qx, qy, cx, cy, bx, by, tips } = g;
-		const col = this.palRGB[n.type] ?? "255,255,255";
+		const col = this.palRGB[n.vt] ?? "255,255,255";
 		ctx.fillStyle = "rgba(" + col + "," + al * 0.8 + ")"; // hillock
 		ctx.beginPath();
 		ctx.moveTo(n.px + ux * R * 0.9 + qx * R * 0.3, n.py + uy * R * 0.9 + qy * R * 0.3);
@@ -1793,7 +2075,7 @@ export class BrainEngine {
 			const al = (1 - ((a.pd + b.pd) / 2) * 0.6) * (fn && ed[0] !== f && ed[1] !== f ? 0.3 : 1);
 			if (this.quality > 0) {
 				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.35;
-				ctx.fillStyle = s.w < 0 ? "rgb(251,113,133)" : "rgb(" + this.palRGB[a.type] + ")";
+				ctx.fillStyle = s.w < 0 ? "rgb(251,113,133)" : "rgb(" + this.palRGB[a.vt] + ")";
 				ctx.beginPath();
 				ctx.arc(x, y, 5.5 * dpr, 0, 6.2832);
 				ctx.fill();
@@ -1816,12 +2098,13 @@ export class BrainEngine {
 			if (pri >= 0) cand.push([pri, n]);
 		}
 		cand.sort((p, r) => p[0] - r[0]);
-		ctx.font = "600 " + Math.round(12 * dpr) + "px " + (getComputedStyle(this.canvas).fontFamily || "system-ui, sans-serif");
+		ctx.font = "600 " + Math.round(12 * dpr * (this.opts.labelScale?.() ?? 1)) + "px " + (getComputedStyle(this.canvas).fontFamily || "system-ui, sans-serif");
 		ctx.textAlign = "center";
 		ctx.textBaseline = "alphabetic";
 		ctx.lineJoin = "round";
 		const drawn: number[][] = [];
-		for (let i = 0; i < cand.length && i < 40; i++) {
+		const maxLabels = clamp(Math.round((this.W * this.H) / (dpr * dpr * 24000)), 20, 90); // more room, more names
+		for (let i = 0; i < cand.length && i < maxLabels; i++) {
 			const n = cand[i][1], w = ctx.measureText(n.label).width, x = n.px, y = n.py - n.pr * 1.5 - 5 * dpr;
 			let hit = false;
 			for (const rr of drawn) {

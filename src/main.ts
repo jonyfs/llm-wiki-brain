@@ -63,6 +63,10 @@ export default class BrainPlugin extends Plugin {
 		this.addCommand({ id: "clear", name: t("cmd.clear"), callback: () => this.views().forEach((v) => v.engine?.clearMarks()) });
 		this.addCommand({ id: "flow", name: t("cmd.flow"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.playFlow())) });
 		this.addCommand({ id: "replay", name: t("cmd.replay"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.engine?.replay())) });
+		this.addCommand({ id: "search", name: t("cmd.search"), callback: () => void this.activate().then(() => this.views().forEach((v) => v.focusSearch())) });
+		this.addCommand({ id: "export", name: t("cmd.export"), callback: () => void this.activate().then(() => this.views().forEach((v) => void v.exportPng())) });
+		this.addCommand({ id: "canvas", name: t("cmd.canvas"), callback: () => this.views().forEach((v) => void v.makeCanvas()) });
+		this.addCommand({ id: "clear-filters", name: t("cmd.clearFilters"), callback: () => this.views().forEach((v) => v.clearAll()) });
 		this.addSettingTab(new BrainSettingTab(this.app, this));
 
 		let pending: string | null = null; // a page created a moment ago: once it is indexed, information flows to it
@@ -116,8 +120,16 @@ export default class BrainPlugin extends Plugin {
 		const { layout, ...rest } = ((await this.loadData()) ?? {}) as Partial<BrainSettings> & { layout?: Layout };
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, rest);
 		this.settings.savedViews = cleanViews(this.settings.savedViews);
-		this.settings.pinned = Array.isArray(this.settings.pinned) ? this.settings.pinned.filter((p) => typeof p === "string") : [];
+		this.settings.history = Array.isArray(this.settings.history) ? this.settings.history.filter((h) => typeof h === "string").slice(0, 12) : [];
+		if (!(this.settings.labelScale >= 0.7 && this.settings.labelScale <= 1.8)) this.settings.labelScale = 1;
 		this.layout = pruneLayout(layout ?? {}, null);
+		// Saved positions from an older layout algorithm no longer fit the brain: start over once.
+		if (!(rest as { schema?: number }).schema || (rest as { schema?: number }).schema! < 3) {
+			this.layout = {};
+			this.settings.schema = 3;
+			void this.saveData({ ...this.settings, layout: this.layout });
+		}
+		this.settings.pinned = Array.isArray(this.settings.pinned) ? this.settings.pinned.filter((p) => typeof p === "string") : [];
 		this.refreshLang();
 	}
 
@@ -267,6 +279,23 @@ class BrainSettingTab extends PluginSettingTab {
 				t.setValue(this.plugin.settings.followActiveNote).onChange(async (v) => {
 					this.plugin.settings.followActiveNote = v;
 					await this.plugin.saveSettings();
+				}),
+			);
+		new Setting(containerEl)
+			.setName(t("set.perf.name"))
+			.setDesc(t("set.perf.desc"))
+			.addToggle((tg) =>
+				tg.setValue(this.plugin.settings.showPerf).onChange(async (v) => {
+					await this.plugin.persist({ showPerf: v });
+				}),
+			);
+		new Setting(containerEl)
+			.setName(t("set.labels.name"))
+			.setDesc(t("set.labels.desc"))
+			.addSlider((sl) =>
+				sl.setLimits(0.7, 1.8, 0.1).setValue(this.plugin.settings.labelScale).setDynamicTooltip().onChange(async (v) => {
+					await this.plugin.persist({ labelScale: v });
+					this.plugin.views().forEach((vw) => vw.engine?.refreshLabels());
 				}),
 			);
 		new Setting(containerEl)
