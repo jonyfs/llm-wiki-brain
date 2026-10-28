@@ -191,3 +191,9 @@
 .llm-wiki-brain-tools select {
 	max-width: 7.5em;
 }
+
+.llm-wiki-brain-side {
+	margin-top: 6px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}

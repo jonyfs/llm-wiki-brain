@@ -1,6 +1,7 @@
 /* Brain engine: Canvas 2D with real perspective, depth sorting and neuron-shaped nodes.
    Ported from the llm-wiki-template demo graph (MIT), extended with information flow
    (index to page packets, ask waves, replay), persistent selection and filters. */
+import { Net, cascade, hebb, synapsesOf, Spike } from "./synapse";
 import { assignLobes, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
@@ -29,6 +30,9 @@ export interface NodeInfo {
 	ctime: number;
 	mtime: number;
 	neighbors: { path: string; label: string }[];
+	inputs: { path: string; label: string }[]; // pages that link here (dendrites)
+	outputs: { path: string; label: string }[]; // pages this one links to (axon)
+	threshold: number; // input the page needs before it fires
 }
 
 export interface FlowOptions {
@@ -105,6 +109,7 @@ interface Signal {
 	v: number;
 	rev: boolean;
 	gen: number;
+	w: number; // strength carried to the target
 }
 
 interface Packet {
@@ -121,6 +126,7 @@ interface Wave {
 	id: number;
 	from: number;
 	at: number;
+	fires: boolean; // the target crossed its threshold (otherwise it only charged)
 }
 
 const DIST = 820;
@@ -210,6 +216,9 @@ export class BrainEngine {
 	private order: Cell[] = [];
 	private hidden: Partial<Record<PageType, boolean>> = {};
 	private signals: Signal[] = [];
+	private net: Net | null = null;
+	private mutual: boolean[] = [];
+	private leakAt = 0;
 	private packets: Packet[] = [];
 	private waves: Wave[] = [];
 	private replayState: { ids: number[]; i: number; next: number; step: number; index: number; paused: boolean; speed: number; key: "ctime" | "mtime" } | null = null;
@@ -300,7 +309,7 @@ export class BrainEngine {
 	/* ---------- Data ---------- */
 
 	/** Replace the graph, keeping the position of pages that already exist so the brain does not jump. */
-	setGraph(pages: GraphNode[], links: [string, string][], saved?: Record<string, number[]>): void {
+	setGraph(pages: GraphNode[], links: [string, string][], saved?: Record<string, number[]>, counts?: Map<string, number>): void {
 		const old = this.byPath;
 		const next: Cell[] = [];
 		const byPath = new Map<string, Cell>();
@@ -358,6 +367,7 @@ export class BrainEngine {
 		this.byPath = byPath;
 		this.order = next.slice();
 		this.edges = [];
+		this.mutual = [];
 		this.edgeIdx.clear();
 		this.signals = [];
 		this.packets = [];
@@ -371,7 +381,12 @@ export class BrainEngine {
 			const nb = byPath.get(b);
 			if (!na || !nb || na === nb) continue;
 			const k = na.id < nb.id ? na.id + "," + nb.id : nb.id + "," + na.id;
-			if (this.edgeIdx.has(k)) continue;
+			const had = this.edgeIdx.get(k);
+			if (had !== undefined) {
+				if (this.edges[had][0] !== na.id) this.mutual[had] = true; // the link also goes the other way
+				continue;
+			}
+			this.mutual.push(false);
 			this.edgeIdx.set(k, this.edges.length);
 			this.edges.push([na.id, nb.id, (er() < 0.5 ? -1 : 1) * (0.04 + er() * 0.08), na.side !== 0 && nb.side === -na.side, 0, 0]);
 			na.deg++;
@@ -379,6 +394,10 @@ export class BrainEngine {
 			na.adj.push(nb.id);
 			nb.adj.push(na.id);
 		}
+		this.net = new Net(this.nodes.length, synapsesOf(links.flatMap(([a, b]) => {
+			const x = byPath.get(a), y = byPath.get(b);
+			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b)] as [number, number, number?]] : [];
+		})));
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
 		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
@@ -490,6 +509,9 @@ export class BrainEngine {
 		return {
 			path: n.path, label: n.label, type: n.type, deg: n.deg, ctime: n.ctime, mtime: n.mtime,
 			neighbors: n.adj.slice().sort((a, b) => this.nodes[b].deg - this.nodes[a].deg).slice(0, 12).map((j) => ({ path: this.nodes[j].path, label: this.nodes[j].label })),
+			inputs: (this.net?.inn[id] ?? []).map((x) => this.nodes[x.from]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
+			outputs: (this.net?.out[id] ?? []).map((x) => this.nodes[x.to]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
+			threshold: Math.round((this.net?.theta[id] ?? 1) * 100) / 100,
 		};
 	}
 
@@ -622,9 +644,16 @@ export class BrainEngine {
 			this.nodes[id].lit = now + 6500;
 			this.nodes[id].pulse = 1;
 		}
-		const seeds = ids.slice().sort((a, b) => this.nodes[b].deg - this.nodes[a].deg).slice(0, 3);
-		const hits = spreadFrom(this.nodes.map((n) => n.adj), this.nodes.map((n) => n.deg), seeds, (i) => !this.nodes[i].off, 2, 4, 24);
-		for (const h of hits) this.waves.push({ id: h.id, from: h.from, at: now + h.hop * 420 + Math.random() * 120 });
+		const seeds = ids.slice().sort((a, b) => this.nodes[b].deg - this.nodes[a].deg).slice(0, 5);
+		// The answer follows the links the way a signal follows axons; charges add up, so a page fed by several matches fires.
+		let spikes: Spike[] = this.net ? cascade(this.net, seeds, 3, 40).filter((sp) => !this.nodes[sp.to].off) : [];
+		if (spikes.length) {
+			if (this.net) hebb(this.net, spikes);
+			for (const sp of spikes) this.waves.push({ id: sp.to, from: sp.from, at: now + sp.tick * 420 + Math.random() * 120, fires: sp.fires });
+		} else {
+			const hits = spreadFrom(this.nodes.map((n) => n.adj), this.nodes.map((n) => n.deg), seeds.slice(0, 3), (i) => !this.nodes[i].off, 2, 4, 24);
+			for (const h of hits) this.waves.push({ id: h.id, from: h.from, at: now + h.hop * 420 + Math.random() * 120, fires: true });
+		}
 		this.start();
 		return ids.length;
 	}
@@ -722,7 +751,8 @@ export class BrainEngine {
 		if (!n) return;
 		n.pulse = 1;
 		n.lit = this.tNow + 2500;
-		for (const j of n.adj) this.sendSignal(n.id, j, 1);
+		this.net?.fire(n.id);
+		for (const s of this.net?.out[n.id] ?? []) this.sendSignal(n.id, s.to, 1);
 		this.alpha = Math.max(this.alpha, 0.2);
 		this.start();
 	}
@@ -748,17 +778,22 @@ export class BrainEngine {
 		this.start();
 	}
 
+	/** A spike leaves the axon of `from` and travels to a dendrite of `to`: only along the direction of the link (both ways if the pages link each other). */
 	private sendSignal(from: number, to: number, gen: number): void {
 		const e = this.edgeIdx.get(from < to ? from + "," + to : to + "," + from);
 		if (e == null || this.signals.length > (this.quality > 1 ? 16 : 6)) return;
-		this.signals.push({ e, t: 0, v: 0.008 + Math.random() * 0.01, rev: this.edges[e][1] === from, gen });
+		const ed = this.edges[e];
+		if (ed[0] !== from && !this.mutual[e]) return;
+		const w = this.net?.out[from].find((x) => x.to === to)?.w ?? 1;
+		this.signals.push({ e, t: 0, v: 0.008 + Math.random() * 0.01, rev: ed[1] === from, gen, w });
 	}
 
 	private spawnAmbient(): void {
 		if (!this.edges.length) return;
 		const e = Math.floor(Math.random() * this.edges.length), ed = this.edges[e];
 		if (this.nodes[ed[0]].off || this.nodes[ed[1]].off) return;
-		this.sendSignal(Math.random() < 0.5 ? ed[0] : ed[1], Math.random() < 0.5 ? ed[1] : ed[0], 0);
+		const back = this.mutual[e] && Math.random() < 0.5;
+		this.sendSignal(back ? ed[1] : ed[0], back ? ed[0] : ed[1], 0);
 	}
 
 	/* ---------- Ports: where each link leaves the neuron ---------- */
@@ -1130,6 +1165,10 @@ export class BrainEngine {
 			}
 			busy = true;
 		}
+		if (this.net && this.tNow >= this.leakAt) {
+			this.net.tick();
+			this.leakAt = this.tNow + 350;
+		}
 		// Ambient signals keep the brain alive between events.
 		const amb = this.opts.ambient();
 		if (amb > 0 && !this.opts.reducedMotion && this.quality > 0) {
@@ -1142,11 +1181,15 @@ export class BrainEngine {
 			if (this.signals.length) ambientOnly = true;
 			if (s.t < 1) continue;
 			const ed = this.edges[s.e], to = s.rev ? ed[0] : ed[1], tn = this.nodes[to];
-			tn.pulse = Math.max(tn.pulse, 0.5); // the signal arrives and the cell answers
 			this.signals.splice(i, 1);
-			if (s.gen < 2 && Math.random() < 0.55 && tn.adj.length > 1) { // and carries on to another neighbour
-				const nx = tn.adj[Math.floor(Math.random() * tn.adj.length)];
-				if (nx !== (s.rev ? ed[1] : ed[0])) this.sendSignal(to, nx, s.gen + 1);
+			// The dendrite receives: the soma adds the charge and fires all-or-nothing once it crosses its threshold.
+			if (this.net?.receive(to, s.w)) {
+				tn.pulse = 1;
+				tn.lit = this.tNow + 1800;
+				if (s.gen < 3) for (const o of this.net.fire(to)) this.sendSignal(to, o.to, s.gen + 1);
+				else this.net.fire(to);
+			} else {
+				tn.pulse = Math.max(tn.pulse, 0.25); // charged, not fired
 			}
 		}
 		for (let i = this.packets.length - 1; i >= 0; i--) {
@@ -1176,9 +1219,9 @@ export class BrainEngine {
 			busy = true;
 			if (this.tNow < w.at) continue;
 			const n = this.nodes[w.id];
-			n.pulse = 1;
-			n.lit = this.tNow + 3200;
-			if (w.from >= 0 && !this.opts.reducedMotion) this.sendSignal(w.from, w.id, 2);
+			n.pulse = w.fires ? 1 : 0.35;
+			n.lit = this.tNow + (w.fires ? 3200 : 900);
+			if (w.from >= 0 && !this.opts.reducedMotion) this.sendSignal(w.from, w.id, 3);
 			this.waves.splice(i, 1);
 		}
 		const rp = this.replayState;
@@ -1347,6 +1390,16 @@ export class BrainEngine {
 			} else {
 				const sp = this.sprites[n.type];
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+			}
+			const charge = this.net && this.quality > 0 ? this.net.charge(n.id) : 0;
+			if (charge > 0.04 && n.pr > 3 * dpr) { // membrane potential: the arc closes as the cell nears its threshold
+				ctx.globalAlpha = (0.35 + 0.5 * charge) * al;
+				ctx.lineWidth = Math.max(1.2 * dpr, n.pr * 0.12);
+				ctx.strokeStyle = this.boutonColor;
+				ctx.lineCap = "round";
+				ctx.beginPath();
+				ctx.arc(n.px, n.py, n.pr * 1.28, -1.5708, -1.5708 + 6.2832 * charge);
+				ctx.stroke();
 			}
 			if (n.pulse > 0 && this.quality > 0) {
 				ctx.globalAlpha = n.pulse * 0.5 * al;

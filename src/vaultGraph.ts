@@ -79,6 +79,7 @@ export interface PageMeta {
 export interface VaultGraph {
 	pages: GraphNode[];
 	links: [string, string][];
+	counts: Map<string, number>; // "from>to" -> how many times the page links there
 	meta: Map<string, PageMeta>;
 	orphans: string[];
 	broken: string[];
@@ -101,10 +102,12 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	const unresolved = app.metadataCache.unresolvedLinks;
 	const deg = new Map<string, number>();
 	const links: [string, string][] = [];
+	const counts = new Map<string, number>();
 	for (const f of all) {
 		for (const target of Object.keys(resolved[f.path] ?? {})) {
 			if (!scope.has(target) || target === f.path) continue;
 			links.push([f.path, target]);
+			counts.set(f.path + ">" + target, Number(resolved[f.path][target]) || 1);
 			deg.set(f.path, (deg.get(f.path) ?? 0) + 1);
 			deg.set(target, (deg.get(target) ?? 0) + 1);
 		}
@@ -142,6 +145,7 @@ export function buildVaultGraph(app: App, s: BrainSettings, logText?: string | n
 	return {
 		pages,
 		links: links.filter(([a, b]) => keep.has(a) && keep.has(b)),
+		counts,
 		meta,
 		orphans: files.filter((f) => !deg.get(f.path) && !special.has(f.path)).map((f) => f.path),
 		broken: files.filter((f) => Object.keys(unresolved[f.path] ?? {}).length > 0).map((f) => f.path),

@@ -341,7 +341,7 @@ export class BrainView extends ItemView {
 		if (!this.engine) return;
 		this.logEntries = parseLog(log ?? "");
 		this.graph = buildVaultGraph(this.app, this.plugin.settings, log);
-		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout);
+		this.engine.setGraph(this.graph.pages, this.graph.links, this.plugin.layout, this.graph.counts);
 		for (const t of this.filters.hidden) this.engine.setHidden(t, true);
 		this.fillSelects();
 		this.syncChips();
@@ -494,13 +494,18 @@ export class BrainView extends ItemView {
 			this.applyFilters();
 			this.showInfo(info);
 		});
-		if (info.neighbors.length) {
+		const side = (title: string, items: { path: string; label: string }[]) => {
+			if (!items.length) return;
+			this.info.createDiv({ cls: "llm-wiki-brain-side", text: title });
 			const list = this.info.createDiv({ cls: "llm-wiki-brain-neighbors" });
-			for (const n of info.neighbors) {
+			for (const n of items) {
 				const b = list.createEl("button", { text: n.label, attr: { title: n.path } });
 				b.addEventListener("click", () => this.engine?.selectPath(n.path, true));
 			}
-		}
+		};
+		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.neuron", { inn: info.inputs.length, out: info.outputs.length, theta: info.threshold }) });
+		side(this.t("info.inputs"), info.inputs);
+		side(this.t("info.outputs"), info.outputs);
 	}
 
 	playFlow(opts: { to?: string } = {}): void {
