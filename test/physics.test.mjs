@@ -51,3 +51,28 @@ test("a pinned node does not move while the others still react to it", () => {
 	assert.equal(a.vx, 0);
 	assert.ok(Math.abs(b.x - 1) > 0.01);
 });
+
+import { FILL } from "../.test-build/physics.mjs";
+
+function settle(n, links, steps = 500) {
+	const nodes = Array.from({ length: n }, (_, i) => ({ id: i, lobe: 0, side: -1, x: -92 + (i % 3) * 3, y: -18 + (i % 2) * 3, z: (i % 4) * 2, vx: 0, vy: 0, vz: 0 })); // all bunched at the centre
+	for (let s = 0, a = 1; s < steps; s++, a *= 0.995) simStep(nodes, links, Math.max(a, 0.3));
+	const L = LOBES[0];
+	const q = nodes.map((a) => Math.hypot((a.x - L.c[0]) / L.r[0], (a.y - L.c[1]) / L.r[1], (a.z - L.c[2]) / L.r[2]));
+	return { rms: Math.sqrt(q.reduce((s, x) => s + x * x, 0) / n), max: Math.max(...q) };
+}
+
+test("a handful of nodes bunched at the centre spread out to use the lobe", () => {
+	for (const n of [3, 6, 12]) {
+		const r = settle(n, []);
+		assert.ok(r.rms > FILL - 0.12, n + " nodes: rms " + r.rms.toFixed(2));
+		assert.ok(r.max < 1.15, n + " nodes: max " + r.max.toFixed(2));
+	}
+});
+
+test("linked nodes spread too, without leaving the shell", () => {
+	const links = Array.from({ length: 7 }, (_, i) => [i, i + 1]);
+	const r = settle(8, links);
+	assert.ok(r.rms > FILL - 0.15, "rms " + r.rms.toFixed(2));
+	assert.ok(r.max < 1.15, "max " + r.max.toFixed(2));
+});

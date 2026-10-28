@@ -1356,7 +1356,7 @@ export class BrainEngine {
 
 	private project(): void {
 		const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw), cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
-		this.S0 = (Math.min(this.W, this.H * 1.05) / 520) * this.zoom; // the whole brain, stem included, fits the view
+		this.S0 = (Math.min(this.W, this.H * 1.05) / 470) * this.zoom;
 		this.camCy = cy; this.camSy = sy; this.camCp = cp; this.camSp = sp;
 		const cx = this.W / 2 + this.panX, cyy = this.H / 2 + this.panY, rk = this.S0 * Math.pow(this.zoom, -0.35) * 0.62;
 		for (const n of this.nodes) {
@@ -1378,74 +1378,22 @@ export class BrainEngine {
 		}
 	}
 
-	/** The brain around the neurons: a crisp rim around the union of the lobes, a body a shade off the background, contour rings for relief and the fissure between hemispheres. */
-	private drawShell(): void {
-		const ctx = this.ctx, dpr = this.dpr, edge = this.edgeRGB;
-		const proj = (x: number, y: number, z: number): [number, number, number] => {
-			const x1 = x * this.camCy + z * this.camSy, z1 = -x * this.camSy + z * this.camCy;
-			const y1 = y * this.camCp - z1 * this.camSp, z2 = y * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
-			return [this.W / 2 + this.panX + x1 * p * this.S0, this.H / 2 + this.panY + y1 * p * this.S0, p];
-		};
-		const shapes = LOBES.map((L) => {
-			const [cx, cy, p] = proj(L.c[0], L.c[1], L.c[2]);
-			return { cx, cy, rx: Math.max(L.r[0], L.r[2]) * 1.08 * p * this.S0, ry: L.r[1] * 1.12 * p * this.S0, big: L.side !== 0 || L.c[1] < 0 || L.c[2] < -60 };
-		});
-		const ell = (o: { cx: number; cy: number; rx: number; ry: number }, k = 1) => {
-			ctx.moveTo(o.cx + o.rx * k, o.cy);
-			ctx.ellipse(o.cx, o.cy, o.rx * k, o.ry * k, 0, 0, 6.2832);
-		};
-		const order = [6, 5, 4, 2, 3, 0, 1].map((i) => shapes[i]);
-		ctx.save();
-		// 1. rim: every lobe stroked, then the bodies cover the inner halves, so only the outline of the union is left
-		ctx.lineWidth = Math.max(2, 3.2 * dpr);
-		ctx.strokeStyle = "rgba(" + edge + "," + (this.light ? 0.5 : 0.6) + ")";
-		ctx.beginPath();
-		for (const o of order) ell(o);
-		ctx.stroke();
-		// 2. body: opaque background first (hides the inner strokes), then a tint
-		ctx.fillStyle = this.bgColor;
-		ctx.beginPath();
-		for (const o of order) ell(o);
-		ctx.fill();
-		ctx.fillStyle = "rgba(" + edge + "," + (this.light ? 0.07 : 0.085) + ")";
-		ctx.fill();
-		// 3. soft light in the middle of each lobe
-		if (this.ghost) {
-			ctx.globalAlpha = this.ghostAlpha;
-			for (const o of order) ctx.drawImage(this.ghost, o.cx - o.rx, o.cy - o.ry, o.rx * 2, o.ry * 2);
-			ctx.globalAlpha = 1;
-		}
-		// 4. relief: contour rings inside the large lobes
-		ctx.lineWidth = Math.max(1, dpr);
-		ctx.strokeStyle = "rgba(" + edge + "," + (this.light ? 0.16 : 0.13) + ")";
-		ctx.beginPath();
-		for (const o of shapes) if (o.big) for (const k of [0.74, 0.48]) ell(o, k);
-		ctx.stroke();
-		// 5. the fissure between the hemispheres
-		const t = proj(0, -122, 0), m = proj(0, -10, 0), u = proj(0, 96, 0);
-		ctx.lineCap = "round";
-		ctx.lineWidth = Math.max(2, 3 * dpr);
-		ctx.strokeStyle = this.light ? "rgba(30,30,60,0.22)" : "rgba(0,0,10,0.55)";
-		ctx.beginPath();
-		ctx.moveTo(t[0], t[1]);
-		ctx.quadraticCurveTo(m[0] - 6 * dpr, m[1], u[0], u[1]);
-		ctx.stroke();
-		ctx.lineWidth = Math.max(1, dpr);
-		ctx.strokeStyle = "rgba(" + edge + ",0.22)";
-		ctx.beginPath();
-		ctx.moveTo(t[0] + 3 * dpr, t[1]);
-		ctx.quadraticCurveTo(m[0] - 3 * dpr, m[1], u[0] + 3 * dpr, u[1]);
-		ctx.stroke();
-		ctx.restore();
-	}
-
 	private draw(): void {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
 		this.lowDetail = nodes.length > 600 || this.quality === 0;
 		this.computeAnchors();
-		this.drawShell();
+		if (this.ghost) {
+			ctx.globalAlpha = this.ghostAlpha;
+			for (const L of LOBES) {
+				const x = L.c[0] * this.camCy + L.c[2] * this.camSy, z1 = -L.c[0] * this.camSy + L.c[2] * this.camCy;
+				const y = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+				const rx = Math.max(L.r[0], L.r[2]) * 1.08 * p * this.S0, ry = L.r[1] * 1.12 * p * this.S0;
+				ctx.drawImage(this.ghost, this.W / 2 + this.panX + x * p * this.S0 - rx, this.H / 2 + this.panY + y * p * this.S0 - ry, rx * 2, ry * 2);
+			}
+			ctx.globalAlpha = 1;
+		}
 		const f = this.hovered !== -1 ? this.hovered : this.selected, fn = f >= 0 ? nodes[f] : null;
 		const nb = new Uint8Array(nodes.length);
 		if (fn) {

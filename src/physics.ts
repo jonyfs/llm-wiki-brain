@@ -18,6 +18,7 @@ export const LOBES: Lobe[] = [
 	{ c: [0, 158, -40], r: [26, 62, 26], w: 0.35, side: 0 },
 ];
 export const LOBE_SUM = LOBES.reduce((s, l) => s + l.w, 0);
+export const FILL = 0.72; // target rms radius of the nodes of a lobe, as a fraction of its radius
 export const GAP = 7; // half-width of the longitudinal fissure between hemispheres
 
 // Gyri and sulci: the outline of each lobe wobbles a little, so the shell reads as folded cortex.
@@ -74,12 +75,21 @@ export function simStep(nodes: PhysNode[], edges: ReadonlyArray<LinkPair>, k: nu
 		a.vx += f * dx; a.vy += f * dy; a.vz += f * dz;
 		b.vx -= f * dx; b.vy -= f * dy; b.vz -= f * dz;
 	}
+	// How far out each lobe's nodes sit on average (1 = the shell). Uniform fill of a ball gives about 0.77.
+	const sum = new Float64Array(LOBES.length), cnt = new Float64Array(LOBES.length);
+	for (const a of nodes) {
+		const L = LOBES[a.lobe], ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
+		sum[a.lobe] += ex * ex + ey * ey + ez * ez;
+		cnt[a.lobe]++;
+	}
+	const rms = LOBES.map((_, i) => (cnt[i] ? Math.sqrt(sum[i] / cnt[i]) : 1));
 	for (const a of nodes) {
 		const L = LOBES[a.lobe];
 		const ex = (a.x - L.c[0]) / L.r[0], ey = (a.y - L.c[1]) / L.r[1], ez = (a.z - L.c[2]) / L.r[2];
 		const q = Math.sqrt(ex * ex + ey * ey + ez * ez), lim = 0.97 * fold(a.x, a.y, a.z);
-		if (q < 0.5 && !a.pinned) { // the middle of a lobe is not left empty: a gentle push toward the cortex uses the whole shell
-			const out = (0.5 - q) * 0.03;
+		const r = rms[a.lobe];
+		if (r < FILL && !a.pinned) { // the lobe is under-used: every node in it drifts outward until the group spans the volume
+			const out = (FILL - r) * 0.06;
 			a.vx += (a.x - L.c[0]) * out; a.vy += (a.y - L.c[1]) * out; a.vz += (a.z - L.c[2]) * out;
 		}
 		if (q > lim) {
