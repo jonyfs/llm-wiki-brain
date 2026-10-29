@@ -88,7 +88,7 @@ The **Filters** button opens the panel (a live line says "Showing N of M"):
 - **Clear filters**, and a ✕ button right after the search box that clears the filters and the search in one click
 - **Saved views:** name the current filters and search, save them, pick them again (up to 20)
 - **One-click presets:** Orphans, Hubs, Recent (30 days), New (30 days), Sinks, Sources and Invert replace the active filter set in one click
-- **Collapsible left rail:** type chips, toolbar and the filter stack live in a rail that collapses to an icon strip to free canvas space; filters, search, selection and camera are saved with the pane
+- **Fixed icon rail:** type chips and toolbar live in a fixed 44 px icon rail; search and filters live in a floating panel. Filters, search, selection and camera are saved with the pane
 
 Filters, search, selection and camera are saved with the pane, so the view comes back as you left it. The **log filter** shows only the pages a `wiki/log.md` operation (ingest, query, lint…) touched, matched by page name in the entry title.
 

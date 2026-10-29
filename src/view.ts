@@ -88,14 +88,16 @@ export class BrainView extends ItemView {
 	private folderSel!: HTMLSelectElement;
 	private tagSel!: HTMLSelectElement;
 	private opSel!: HTMLSelectElement;
-	private dirSel!: HTMLSelectElement;
+	private dirSel!: { setValue: (v: string) => void };
 	private degIn!: HTMLInputElement;
 	private degOut!: HTMLElement;
 	private daysSel!: HTMLSelectElement;
 	private createdSel!: HTMLSelectElement;
+	private editedAfterIn!: HTMLInputElement;
+	private createdAfterIn!: HTMLInputElement;
 	private maxIn!: HTMLInputElement;
 	private maxOut!: HTMLElement;
-	private depthSel!: HTMLSelectElement;
+	private depthSel!: { setValue: (v: string) => void };
 	private invIn!: HTMLInputElement;
 	private orphIn!: HTMLInputElement;
 	private queryIn!: HTMLInputElement;
@@ -238,6 +240,13 @@ export class BrainView extends ItemView {
 		this.keysCard = this.stage.createDiv({ cls: "llm-wiki-brain-card" });
 		this.keysCard.hide();
 		this.buildCards();
+		document.addEventListener("click", (e) => {
+			if (!this.panel?.hasClass("is-open")) return;
+			const t = e.target as Node;
+			if (this.panel.contains(t) || this.filterBtn?.contains(t)) return;
+			this.panel.toggleClass("is-open", false);
+			this.filterBtn?.setAttribute("aria-expanded", "false");
+		});
 		this.info = root.createDiv({ cls: "llm-wiki-brain-info", attr: { "aria-live": "polite" } });
 		this.info.hide();
 		this.lintBox = root.createDiv({ cls: "llm-wiki-brain-lint" });
@@ -403,6 +412,22 @@ export class BrainView extends ItemView {
 		return sel;
 	}
 
+	private segmented(label: string, options: [string, string][], onChange: (v: string) => void): { setValue: (v: string) => void } {
+		const row = this.field(label, label);
+		const group = row.createDiv({ cls: "llm-wiki-brain-seg" });
+		const btns: HTMLButtonElement[] = [];
+		for (const [v, l] of options) {
+			const b = group.createEl("button", { text: l, attr: { "aria-pressed": "false" } });
+			b.addEventListener("click", () => {
+				btns.forEach((x) => x.setAttribute("aria-pressed", "false"));
+				b.setAttribute("aria-pressed", "true");
+				onChange(v);
+			});
+			btns.push(b);
+		}
+		return { setValue: (v: string) => btns.forEach((b, i) => b.setAttribute("aria-pressed", String(options[i][0] === v))) };
+	}
+
 	private check(label: string, id: string, onChange: (v: boolean) => void): HTMLInputElement {
 		const row = this.panel.createDiv({ cls: "llm-wiki-brain-field" });
 		const input = row.createEl("input", { type: "checkbox", attr: { id } });
@@ -432,6 +457,8 @@ export class BrainView extends ItemView {
 			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
 			b.addEventListener("click", () => this.applyPreset(p));
 		}
+		const clear = this.panel.createEl("button", { cls: "llm-wiki-brain-clear", text: this.t("filters.clear") });
+		clear.addEventListener("click", () => this.clearAll());
 		this.contentEl.addEventListener("keydown", (e) => {
 			if (e.key === "Escape" && this.panel?.hasClass("is-open")) {
 				this.panel.toggleClass("is-open", false);
@@ -439,7 +466,7 @@ export class BrainView extends ItemView {
 				this.filterBtn?.focus();
 			}
 		});
-		const sec = (title: string) => { const h = this.panel.createDiv({ cls: "llm-wiki-brain-section" }); h.createEl("strong", { text: title }); return h; };
+		const sec = (title: string) => { const h = this.panel.createEl("fieldset", { cls: "llm-wiki-brain-section" }); h.createEl("legend", { text: title }); return h; };
 		sec(this.t("filters.section.filters"));
 		this.folderSel = this.select(this.t("filters.folder"), [], (v) => {
 			this.filters.folder = v;
@@ -453,7 +480,7 @@ export class BrainView extends ItemView {
 			this.filters.op = v;
 			this.applyFilters();
 		});
-		this.dirSel = this.select(
+		this.dirSel = this.segmented(
 			this.t("filters.dir"),
 			[["", this.t("filters.dir.any")], ["sources", this.t("filters.dir.sources")], ["sinks", this.t("filters.dir.sinks")], ["hubs2", this.t("filters.dir.hubs2")]],
 			(v) => {
@@ -486,8 +513,32 @@ export class BrainView extends ItemView {
 			this.filters.createdDays = Number(v);
 			this.applyFilters();
 		});
+		const editedAfter = this.field(this.t("filters.editedAfter"), this.t("filters.editedAfter"));
+		this.editedAfterIn = editedAfter.createEl("input", { type: "date", attr: { "aria-label": this.t("filters.editedAfter") } });
+		this.editedAfterIn.addEventListener("change", () => {
+			if (!this.editedAfterIn.value) { this.filters.days = 0; }
+			else {
+				const d = new Date(this.editedAfterIn.value);
+				const diff = Math.ceil((Date.now() - d.getTime()) / 86400000);
+				this.filters.days = diff > 0 ? diff : 0;
+			}
+			this.syncControls(false);
+			this.applyFilters();
+		});
+		const createdAfter = this.field(this.t("filters.createdAfter"), this.t("filters.createdAfter"));
+		this.createdAfterIn = createdAfter.createEl("input", { type: "date", attr: { "aria-label": this.t("filters.createdAfter") } });
+		this.createdAfterIn.addEventListener("change", () => {
+			if (!this.createdAfterIn.value) { this.filters.createdDays = 0; }
+			else {
+				const d = new Date(this.createdAfterIn.value);
+				const diff = Math.ceil((Date.now() - d.getTime()) / 86400000);
+				this.filters.createdDays = diff > 0 ? diff : 0;
+			}
+			this.syncControls(false);
+			this.applyFilters();
+		});
 		sec(this.t("filters.section.advanced"));
-		this.depthSel = this.select(this.t("filters.depth"), [["1", "1"], ["2", "2"], ["3", "3"]], (v) => {
+		this.depthSel = this.segmented(this.t("filters.depth"), [["1", "1"], ["2", "2"], ["3", "3"]], (v) => {
 			this.filters.depth = Number(v);
 			this.applyFilters();
 		});
@@ -501,6 +552,8 @@ export class BrainView extends ItemView {
 		});
 		const q = this.field(this.t("filters.query"), this.t("filters.query"));
 		this.queryIn = q.createEl("input", { type: "text", attr: { placeholder: this.t("filters.query.ph"), "aria-label": this.t("filters.query") } });
+		const qClear = q.createEl("button", { cls: "llm-wiki-brain-qclear", text: "×", attr: { "aria-label": this.t("filters.clear"), title: this.t("filters.clear") } });
+		qClear.addEventListener("click", () => { this.queryIn.value = ""; this.extraQuery = ""; this.applyFilters(); });
 		let qt = 0;
 		this.queryIn.addEventListener("input", () => {
 			window.clearTimeout(qt);
@@ -534,11 +587,10 @@ export class BrainView extends ItemView {
 			this.sizeMode = v as SizeMode;
 			this.applyColorSize();
 		});
-		const clear = this.panel.createEl("button", { text: this.t("filters.clear") });
-		clear.addEventListener("click", () => this.clearAll());
-
 		// Saved views: the filters and the search, under a name.
-		const views = this.panel.createDiv({ cls: "llm-wiki-brain-field llm-wiki-brain-views" });
+		const viewsWrap = this.panel.createEl("details", { cls: "llm-wiki-brain-views-wrap" });
+		viewsWrap.createEl("summary", { text: this.t("views.pick") });
+		const views = viewsWrap.createDiv({ cls: "llm-wiki-brain-field llm-wiki-brain-views" });
 		this.viewSel = views.createEl("select", { attr: { "aria-label": this.t("views.pick") } });
 		this.fillViews();
 		this.viewSel.addEventListener("change", () => {
@@ -637,8 +689,8 @@ export class BrainView extends ItemView {
 		this.maxOut.setText(f.maxDeg ? String(f.maxDeg) : "∞");
 		this.daysSel.value = String(f.days);
 		this.createdSel.value = String(f.createdDays);
-		this.depthSel.value = String(f.depth);
-		this.dirSel.value = f.dir;
+		this.depthSel.setValue(String(f.depth));
+		this.dirSel.setValue(f.dir);
 		this.invIn.checked = f.invert;
 		this.orphIn.checked = f.orphansOnly;
 		this.folderSel.value = f.folder;

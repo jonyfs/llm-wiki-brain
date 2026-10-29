@@ -320,11 +320,31 @@
 	background: var(--background-modifier-hover);
 }
 .llm-wiki-brain-presets {
-	display: flex;
-	flex-wrap: wrap;
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
 	gap: 4px;
 	padding-bottom: 4px;
 	border-bottom: 1px solid var(--background-modifier-border);
+}
+.llm-wiki-brain-seg {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.llm-wiki-brain-seg button {
+	flex: 1 1 auto;
+	font-size: var(--font-ui-smaller);
+}
+.llm-wiki-brain-seg button[aria-pressed="true"] {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+.llm-wiki-brain-qclear {
+	margin-left: auto;
+}
+.llm-wiki-brain-views-wrap summary {
+	cursor: pointer;
+	font-weight: 600;
 }
 .llm-wiki-brain-presets button {
 	font-size: var(--font-ui-smaller);
