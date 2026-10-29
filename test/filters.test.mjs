@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterPaths, neighbourhoodOf, NO_FILTER } from "../.test-build/filters.mjs";
+import { filterPaths, neighbourhoodOf, NO_FILTER, applyPreset } from "../.test-build/filters.mjs";
 
 const DAY = 86400000, NOW = 1_800_000_000_000;
 const pages = [
@@ -44,4 +44,20 @@ test("neighbourhoodOf walks depth links in both directions", () => {
 	assert.deepEqual([...neighbourhoodOf(links, "b", 1)].sort(), ["a", "b", "c"]);
 	assert.deepEqual([...neighbourhoodOf(links, "b", 2)].sort(), ["a", "b", "c", "d"]);
 	assert.deepEqual([...neighbourhoodOf(links, "z", 3)], ["z"]);
+});
+
+test("applyPreset replaces the filter set with a focused combo", () => {
+	const base = { ...NO_FILTER, folder: "concepts", minDeg: 2 };
+	assert.deepEqual(applyPreset(base, "orphans"), { ...NO_FILTER, orphansOnly: true });
+	assert.deepEqual(applyPreset(base, "hubs"), { ...NO_FILTER, minDeg: 4 });
+	assert.deepEqual(applyPreset(base, "recent"), { ...NO_FILTER, days: 30 });
+	assert.deepEqual(applyPreset(base, "new"), { ...NO_FILTER, createdDays: 30 });
+	assert.deepEqual(applyPreset(base, "sinks"), { ...NO_FILTER, dir: "sinks" });
+	assert.deepEqual(applyPreset(base, "sources"), { ...NO_FILTER, dir: "sources" });
+});
+
+test("applyPreset toggles invert while keeping the rest", () => {
+	const base = { ...NO_FILTER, folder: "concepts", invert: false };
+	assert.deepEqual(applyPreset(base, "invert"), { ...NO_FILTER, folder: "concepts", invert: true });
+	assert.deepEqual(applyPreset({ ...base, invert: true }, "invert"), { ...NO_FILTER, folder: "concepts", invert: false });
 });

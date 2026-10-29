@@ -35,6 +35,22 @@ export interface FilterContext {
 
 export const NO_FILTER: FilterSpec = { folder: "", tag: "", minDeg: 0, orphansOnly: false, days: 0, createdDays: 0, maxDeg: 0, invert: false, op: "", dir: "" };
 
+/** Named one-click filter presets. Each replaces the active filter set with a sensible combo. */
+export type FilterPreset = "orphans" | "hubs" | "recent" | "new" | "sinks" | "sources" | "invert";
+
+/** Apply a preset to a filter spec. `invert` toggles; the others replace with a focused combo. */
+export function applyPreset(f: FilterSpec, preset: FilterPreset): FilterSpec {
+	switch (preset) {
+		case "orphans": return { ...NO_FILTER, orphansOnly: true };
+		case "hubs": return { ...NO_FILTER, minDeg: 4 };
+		case "recent": return { ...NO_FILTER, days: 30 };
+		case "new": return { ...NO_FILTER, createdDays: 30 };
+		case "sinks": return { ...NO_FILTER, dir: "sinks" };
+		case "sources": return { ...NO_FILTER, dir: "sources" };
+		case "invert": return { ...f, invert: !f.invert };
+	}
+}
+
 /** Paths to keep, or null when no filter is active (show everything). */
 export function filterPaths(pages: FilterPage[], f: FilterSpec, ctx: FilterContext): Set<string> | null {
 	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || f.op || f.dir || ctx.extra || ctx.isolate || ctx.neighbourhood)) return null;

@@ -261,6 +261,22 @@
 	border-radius: 999px;
 	background: var(--background-modifier-hover);
 }
+.llm-wiki-brain-presets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding-bottom: 4px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+.llm-wiki-brain-presets button {
+	font-size: var(--font-ui-smaller);
+	padding: 1px 8px;
+	border-radius: 999px;
+}
+.llm-wiki-brain-presets button[aria-pressed="true"] {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
 .llm-wiki-brain-results {
 	display: flex;
 	flex-wrap: wrap;
