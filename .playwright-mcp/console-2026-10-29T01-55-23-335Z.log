@@ -1,2 +1,0 @@
-[    4152ms] [LOG] ui-ready 89 @ http://localhost:8783/scripts/harness/bundle-ui.js:5686
-[   11959ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8783/favicon.ico:0
