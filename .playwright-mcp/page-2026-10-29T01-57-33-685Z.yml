@@ -1,0 +1,79 @@
+- generic [ref=f2e3]:
+  - generic [ref=f2e4]:
+    - button "Show or hide the side rail" [ref=f2e5]: pa
+    - generic [ref=f2e6]:
+      - button "Toggle source pages" [pressed] [ref=f2e7]:
+        - generic [ref=f2e9]: source
+        - generic [ref=f2e10]: "13"
+      - button "Toggle entity pages" [pressed] [ref=f2e11]:
+        - generic [ref=f2e13]: entity
+        - generic [ref=f2e14]: "12"
+      - button "Toggle concept pages" [pressed] [ref=f2e15]:
+        - generic [ref=f2e17]: concept
+        - generic [ref=f2e18]: "56"
+      - button "Toggle synthesis pages" [pressed] [ref=f2e19]:
+        - generic [ref=f2e21]: synthesis
+        - generic [ref=f2e22]: "8"
+    - generic [ref=f2e23]:
+      - button "Send information from the index to every page, hop by hop" [ref=f2e24]:
+        - generic [ref=f2e25]: wo
+        - text: Flow
+      - button "Grow the brain again in creation order" [ref=f2e27]:
+        - generic [ref=f2e28]: hi
+        - text: Replay
+      - combobox "Replay order" [ref=f2e30]:
+        - option "by creation" [selected]
+        - option "by edit"
+      - combobox "Replay speed" [ref=f2e31]:
+        - option "0.5×"
+        - option "1×" [selected]
+        - option "2×"
+        - option "4×"
+      - textbox "Replay from this date" [ref=f2e32]
+      - checkbox "Loop the replay" [ref=f2e33]
+      - button "Mark orphan pages, broken links and untyped pages" [ref=f2e34]:
+        - generic [ref=f2e35]: bu
+        - text: Lint
+      - button "Toggle the slow rotation" [pressed] [ref=f2e37]:
+        - generic [ref=f2e38]: re
+        - text: Rotate
+      - button "Reset the camera and the selection" [ref=f2e40]:
+        - generic [ref=f2e41]: ro
+        - text: Reset
+      - button "Toggle full screen" [ref=f2e43]:
+        - generic [ref=f2e44]: ma
+        - text: Full
+      - button "Save the view as an image in the vault" [ref=f2e46]:
+        - generic [ref=f2e47]: im
+        - text: PNG
+      - button "Keyboard and mouse shortcuts" [ref=f2e49]:
+        - generic [ref=f2e50]: ke
+        - text: Keyboard and mouse shortcuts
+    - generic [ref=f2e53]:
+      - combobox "Search pages" [ref=f2e54]
+      - button "Clear filters" [disabled] [ref=f2e55]:
+        - generic [ref=f2e56]: x
+        - text: ✕
+      - button "Search syntax" [ref=f2e58]:
+        - generic [ref=f2e59]: he
+        - text: "?"
+      - button "Previous match" [ref=f2e61]:
+        - generic [ref=f2e62]: ch
+        - text: ‹
+      - button "Next match" [ref=f2e64]:
+        - generic [ref=f2e65]: ch
+        - text: ›
+      - button "Copy the matches as [[links]]" [ref=f2e67]: Copy
+      - button "Filters" [ref=f2e68]:
+        - generic [ref=f2e69]: fi
+        - text: Filters
+  - generic [ref=f2e71]:
+    - img "Interactive 3D brain of your wiki pages and links. Drag to rotate, arrow keys to orbit, plus and minus to zoom, Enter to open the selected page." [ref=f2e72]
+    - generic:
+      - generic: source
+      - generic: entity
+      - generic: concept
+      - generic: synthesis
+  - generic:
+    - generic: 89/89 pages, 336 links, 0 orphans, 0 with broken links
+    - generic: Drag to rotate, scroll to zoom, click to select, double-click to open.
