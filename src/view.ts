@@ -1,7 +1,7 @@
 import { HoverPopover, ItemView, Menu, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
-import { filterPaths, neighbourhoodOf, FilterPage } from "./filters";
+import { filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER } from "./filters";
 import { createDeferredRefresh } from "./refresh";
 import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
@@ -392,6 +392,28 @@ export class BrainView extends ItemView {
 	private buildPanel(root: HTMLElement): void {
 		this.panel = root.createDiv({ cls: "llm-wiki-brain-panel" });
 		this.previewEl = this.panel.createDiv({ cls: "llm-wiki-brain-preview", attr: { "aria-live": "polite" } });
+		// Quick filter presets: one click replaces the active filter set with a sensible combo.
+		const presets = this.panel.createDiv({ cls: "llm-wiki-brain-presets" });
+		const presetDefs: [FilterPreset, string][] = [
+			["orphans", this.t("preset.orphans")],
+			["hubs", this.t("preset.hubs")],
+			["recent", this.t("preset.recent")],
+			["new", this.t("preset.new")],
+			["sinks", this.t("preset.sinks")],
+			["sources", this.t("preset.sources")],
+			["invert", this.t("preset.invert")],
+		];
+		for (const [p, label] of presetDefs) {
+			const b = presets.createEl("button", { text: label, attr: { "aria-pressed": "false" } });
+			b.addEventListener("click", () => this.applyPreset(p));
+		}
+		this.contentEl.addEventListener("keydown", (e) => {
+			if (e.key === "Escape" && this.panel?.hasClass("is-open")) {
+				this.panel.toggleClass("is-open", false);
+				this.filterBtn?.setAttribute("aria-expanded", "false");
+				this.filterBtn?.focus();
+			}
+		});
 		this.folderSel = this.select(this.t("filters.folder"), [], (v) => {
 			this.filters.folder = v;
 			this.applyFilters();
@@ -620,6 +642,44 @@ export class BrainView extends ItemView {
 		this.syncControls(true);
 	}
 
+	/** Apply a one-click filter preset, replacing the active filter set (invert toggles). */
+	applyPreset(p: FilterPreset): void {
+		const spec = applyPreset(this.filters, p);
+		this.filters.folder = spec.folder;
+		this.filters.tag = spec.tag;
+		this.filters.minDeg = spec.minDeg;
+		this.filters.orphansOnly = spec.orphansOnly;
+		this.filters.days = spec.days;
+		this.filters.createdDays = spec.createdDays;
+		this.filters.maxDeg = spec.maxDeg;
+		this.filters.invert = spec.invert;
+		this.filters.op = spec.op;
+		this.filters.dir = spec.dir;
+		this.syncControls(true);
+		this.refreshPresetState();
+	}
+
+	/** Mark the preset button that matches the current filter set as pressed. */
+	private refreshPresetState(): void {
+		const btns = this.panel?.querySelectorAll?.(".llm-wiki-brain-presets button");
+		if (!btns) return;
+		const presets: FilterPreset[] = ["orphans", "hubs", "recent", "new", "sinks", "sources"];
+		btns.forEach((b, i) => {
+			const p = presets[i];
+			if (!p) { b.setAttribute("aria-pressed", "false"); return; }
+			const expected = applyPreset({ ...NO_FILTER }, p);
+			const match = expected.folder === this.filters.folder && expected.tag === this.filters.tag
+				&& expected.minDeg === this.filters.minDeg && expected.orphansOnly === this.filters.orphansOnly
+				&& expected.days === this.filters.days && expected.createdDays === this.filters.createdDays
+				&& expected.maxDeg === this.filters.maxDeg && expected.invert === this.filters.invert
+				&& expected.op === this.filters.op && expected.dir === this.filters.dir;
+			b.setAttribute("aria-pressed", String(match));
+		});
+		// invert button reflects the invert flag
+		const invBtn = btns[6];
+		if (invBtn) invBtn.setAttribute("aria-pressed", String(this.filters.invert));
+	}
+
 	focusSearch(): void {
 		this.search?.focus();
 		this.search?.select();
@@ -760,6 +820,7 @@ export class BrainView extends ItemView {
 		this.filterBtn?.setText(list.length ? this.t("filters.buttonActive", { n: list.length }) : this.t("filters.button"));
 		this.chipsRow.empty();
 		this.chipsRow.toggleClass("is-empty", list.length === 0);
+		this.refreshPresetState();
 		for (const c of list) {
 			const v = c.key === "dir" ? this.t(("filters.dir." + c.value) as StringKey) : c.value;
 			const b = this.chipsRow.createEl("button", { cls: "llm-wiki-brain-achip", text: this.t(("chip." + c.key) as StringKey, { v }) + " ✕", attr: { "aria-label": this.t("chip.remove") + ": " + c.key } });
