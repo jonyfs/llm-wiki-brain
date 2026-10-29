@@ -10,8 +10,8 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-4-1);
-	width: 260px;
-	max-width: 40vw;
+	width: 300px;
+	max-width: 45vw;
 	padding: var(--size-4-2);
 	background: var(--background-secondary);
 	border-right: 1px solid var(--background-modifier-border);
@@ -133,7 +133,7 @@
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	font-size: var(--font-ui-smaller);
-	max-width: 260px;
+	width: 100%;
 }
 .llm-wiki-brain-panel.is-open {
 	display: flex;
@@ -146,6 +146,15 @@
 .llm-wiki-brain-field label {
 	min-width: 56px;
 	color: var(--text-muted);
+}
+.llm-wiki-brain-section {
+	margin-top: var(--size-4-2);
+	padding-top: var(--size-4-1);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
 }
 .llm-wiki-brain-info,
 .llm-wiki-brain-lint {

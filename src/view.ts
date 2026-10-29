@@ -438,6 +438,8 @@ export class BrainView extends ItemView {
 				this.filterBtn?.focus();
 			}
 		});
+		const sec = (title: string) => { const h = this.panel.createDiv({ cls: "llm-wiki-brain-section" }); h.createEl("strong", { text: title }); return h; };
+		sec(this.t("filters.section.filters"));
 		this.folderSel = this.select(this.t("filters.folder"), [], (v) => {
 			this.filters.folder = v;
 			this.applyFilters();
@@ -483,6 +485,7 @@ export class BrainView extends ItemView {
 			this.filters.createdDays = Number(v);
 			this.applyFilters();
 		});
+		sec(this.t("filters.section.advanced"));
 		this.depthSel = this.select(this.t("filters.depth"), [["1", "1"], ["2", "2"], ["3", "3"]], (v) => {
 			this.filters.depth = Number(v);
 			this.applyFilters();
@@ -517,6 +520,7 @@ export class BrainView extends ItemView {
 			this.engine?.setRecent(v);
 			void this.plugin.persist({ recentRing: v });
 		});
+		sec(this.t("filters.section.display"));
 		this.colorSel = this.select(
 			this.t("color.by"),
 			[["type", this.t("color.type")], ["folder", this.t("color.folder")], ["tag", this.t("color.tag")], ["age", this.t("color.age")], ["degree", this.t("color.degree")]],
@@ -850,7 +854,10 @@ export class BrainView extends ItemView {
 	/** One removable chip per filter that is on, under the search box. */
 	private renderChips(): void {
 		const list = this.currentChips();
-		this.filterBtn?.setText(list.length ? this.t("filters.buttonActive", { n: list.length }) : this.t("filters.button"));
+		const label = list.length ? this.t("filters.buttonActive", { n: list.length }) : this.t("filters.button");
+		const span = this.filterBtn?.querySelector(".llm-wiki-brain-btn-label");
+		if (span) span.textContent = label;
+		else this.filterBtn?.setText(label);
 		this.chipsRow.empty();
 		this.chipsRow.toggleClass("is-empty", list.length === 0);
 		this.refreshPresetState();
