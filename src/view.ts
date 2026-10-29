@@ -73,8 +73,7 @@ export class BrainView extends ItemView {
 	private info!: HTMLElement;
 	private panel!: HTMLElement;
 	private rail!: HTMLElement;
-	private railToggle!: HTMLButtonElement;
-	private railCollapsed = false;
+	private overlay!: HTMLElement;
 	private lintBox!: HTMLElement;
 	private search!: HTMLInputElement;
 	private toolsRow!: HTMLElement;
@@ -166,7 +165,6 @@ export class BrainView extends ItemView {
 			cam: this.engine?.camera(),
 			color: this.colorMode,
 			size: this.sizeMode,
-			rail: this.railCollapsed,
 		};
 		return { ...super.getState(), ...st };
 	}
@@ -196,18 +194,8 @@ export class BrainView extends ItemView {
 
 		// Collapsible rail on the left: holds the type chips, the toolbar and the search/filter stack.
 		// Collapsed, it shrinks to an icon strip so the canvas keeps the space.
-		this.rail = root.createDiv({ cls: "llm-wiki-brain-rail" });
-		this.railToggle = this.rail.createEl("button", { cls: "llm-wiki-brain-rail-toggle", attr: { "aria-label": this.t("rail.toggle"), title: this.t("rail.toggle") } });
-		setIcon(this.railToggle, "panel-left-close");
-		this.railToggle.addEventListener("click", () => this.toggleRail());
-		// Restore the collapsed state persisted in the view state.
-		if (this.pending?.rail) {
-			this.railCollapsed = true;
-			this.rail.addClass("is-collapsed");
-			setIcon(this.railToggle, "panel-left-open");
-			this.railToggle.setAttribute("aria-label", this.t("rail.expand"));
-			this.railToggle.setAttribute("title", this.t("rail.expand"));
-		}
+		// Fixed icon-only rail: never expands. Search/filters live in a floating overlay.
+		this.rail = root.createDiv({ cls: "llm-wiki-brain-rail is-collapsed" });
 
 		const bar = this.rail.createDiv({ cls: "llm-wiki-brain-bar" });
 		for (const t of TYPES) {
@@ -222,12 +210,12 @@ export class BrainView extends ItemView {
 		this.toolsRow = this.rail.createDiv({ cls: "llm-wiki-brain-tools" });
 		this.buildTools();
 
-		const stack = this.rail.createDiv({ cls: "llm-wiki-brain-stack" });
-		this.buildSearchRow(stack);
-		this.chipsRow = stack.createDiv({ cls: "llm-wiki-brain-active" });
-		this.results = stack.createDiv({ cls: "llm-wiki-brain-results" });
+		this.overlay = root.createDiv({ cls: "llm-wiki-brain-overlay" });
+		this.buildSearchRow(this.overlay);
+		this.chipsRow = this.overlay.createDiv({ cls: "llm-wiki-brain-active" });
+		this.results = this.overlay.createDiv({ cls: "llm-wiki-brain-results" });
 		this.results.hide();
-		this.buildPanel(stack);
+		this.buildPanel(this.overlay);
 
 		this.replayBar = root.createDiv({ cls: "llm-wiki-brain-replaybar" });
 		this.pauseBtn = this.replayBar.createEl("button", { text: this.t("replay.pause") });
@@ -672,14 +660,6 @@ export class BrainView extends ItemView {
 		}
 	}
 
-	/** Toggle the left rail between expanded and collapsed (icon-only). */
-	toggleRail(): void {
-		this.railCollapsed = !this.railCollapsed;
-		this.rail.toggleClass("is-collapsed", this.railCollapsed);
-		setIcon(this.railToggle, this.railCollapsed ? "panel-left-open" : "panel-left-close");
-		this.railToggle.setAttribute("aria-label", this.t(this.railCollapsed ? "rail.expand" : "rail.collapse"));
-		this.railToggle.setAttribute("title", this.t(this.railCollapsed ? "rail.expand" : "rail.collapse"));
-	}
 
 	/** Clear every filter, the isolated neighbourhood or selection, and the search. */
 	clearAll(): void {

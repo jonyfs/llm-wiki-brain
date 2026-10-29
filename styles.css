@@ -24,6 +24,22 @@
 	width: 44px;
 	padding: var(--size-4-1);
 }
+.llm-wiki-brain-overlay {
+	position: absolute;
+	top: var(--size-4-2);
+	left: 52px;
+	width: min(320px, calc(100% - 60px));
+	max-height: calc(100% - var(--size-4-4));
+	overflow: auto;
+	padding: var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-btn-label,
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-chip-label,
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-n,
