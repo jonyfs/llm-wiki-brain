@@ -44,6 +44,7 @@ interface ViewState {
 	cam?: { yaw: number; pitch: number; zoom: number; panX: number; panY: number };
 	color?: ColorMode;
 	size?: SizeMode;
+	rail?: boolean;
 }
 
 const stem = (p: string) => p.split("/").pop()?.replace(/\.md$/, "") ?? p;
@@ -165,6 +166,7 @@ export class BrainView extends ItemView {
 			cam: this.engine?.camera(),
 			color: this.colorMode,
 			size: this.sizeMode,
+			rail: this.railCollapsed,
 		};
 		return { ...super.getState(), ...st };
 	}
@@ -198,6 +200,14 @@ export class BrainView extends ItemView {
 		this.railToggle = this.rail.createEl("button", { cls: "llm-wiki-brain-rail-toggle", attr: { "aria-label": this.t("rail.toggle"), title: this.t("rail.toggle") } });
 		setIcon(this.railToggle, "panel-left-close");
 		this.railToggle.addEventListener("click", () => this.toggleRail());
+		// Restore the collapsed state persisted in the view state.
+		if (this.pending?.rail) {
+			this.railCollapsed = true;
+			this.rail.addClass("is-collapsed");
+			setIcon(this.railToggle, "panel-left-open");
+			this.railToggle.setAttribute("aria-label", this.t("rail.expand"));
+			this.railToggle.setAttribute("title", this.t("rail.expand"));
+		}
 
 		const bar = this.rail.createDiv({ cls: "llm-wiki-brain-bar" });
 		for (const t of TYPES) {
@@ -405,17 +415,20 @@ export class BrainView extends ItemView {
 		this.previewEl = this.panel.createDiv({ cls: "llm-wiki-brain-preview", attr: { "aria-live": "polite" } });
 		// Quick filter presets: one click replaces the active filter set with a sensible combo.
 		const presets = this.panel.createDiv({ cls: "llm-wiki-brain-presets" });
-		const presetDefs: [FilterPreset, string][] = [
-			["orphans", this.t("preset.orphans")],
-			["hubs", this.t("preset.hubs")],
-			["recent", this.t("preset.recent")],
-			["new", this.t("preset.new")],
-			["sinks", this.t("preset.sinks")],
-			["sources", this.t("preset.sources")],
-			["invert", this.t("preset.invert")],
+		const presetDefs: [FilterPreset, string, string][] = [
+			["orphans", this.t("preset.orphans"), "ghost"],
+			["hubs", this.t("preset.hubs"), "network"],
+			["recent", this.t("preset.recent"), "clock"],
+			["new", this.t("preset.new"), "sparkles"],
+			["sinks", this.t("preset.sinks"), "arrow-down"],
+			["sources", this.t("preset.sources"), "arrow-up"],
+			["invert", this.t("preset.invert"), "shuffle"],
 		];
-		for (const [p, label] of presetDefs) {
-			const b = presets.createEl("button", { text: label, attr: { "aria-pressed": "false", title: label } });
+		for (const [p, label, icon] of presetDefs) {
+			const b = presets.createEl("button", { attr: { "aria-pressed": "false", title: label } });
+			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+			setIcon(ic, icon);
+			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
 			b.addEventListener("click", () => this.applyPreset(p));
 		}
 		this.contentEl.addEventListener("keydown", (e) => {
