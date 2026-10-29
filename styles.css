@@ -29,7 +29,9 @@
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-n,
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-search input[type="search"],
 .llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-stack,
-.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-bar .llm-wiki-brain-chip span:not(.llm-wiki-brain-dot) {
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-bar .llm-wiki-brain-chip span:not(.llm-wiki-brain-dot),
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-tools select,
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-tools input {
 	display: none;
 }
 .llm-wiki-brain-rail-toggle {

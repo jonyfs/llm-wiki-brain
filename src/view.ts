@@ -322,8 +322,21 @@ export class BrainView extends ItemView {
 			this.replaySpeed = Number(speedSel.value);
 			this.engine?.setReplaySpeed(this.replaySpeed);
 		});
+		// Date field as a popup picker triggered by an icon button, so it aligns with the other icon buttons in the rail.
+		const fromBtn = tools.createEl("button", { attr: { "aria-label": this.t("replay.from"), title: this.t("replay.from") } });
+		const fromIcon = fromBtn.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+		setIcon(fromIcon, "calendar");
+		fromBtn.createSpan({ cls: "llm-wiki-brain-btn-label", text: this.t("replay.from") });
 		const fromIn = tools.createEl("input", { type: "date", attr: { "aria-label": this.t("replay.from"), title: this.t("replay.from") } });
+		fromIn.style.position = "absolute";
+		fromIn.style.opacity = "0";
+		fromIn.style.pointerEvents = "none";
+		fromIn.style.width = "0";
+		fromIn.style.height = "0";
 		fromIn.addEventListener("change", () => (this.replayFrom = fromIn.value ? Date.parse(fromIn.value + "T00:00:00Z") : 0));
+		fromBtn.addEventListener("click", () => {
+			try { (fromIn as any).showPicker?.(); } catch { fromIn.click(); }
+		});
 		const loopIn = tools.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop", "aria-label": this.t("replay.loop"), title: this.t("replay.loop") } });
 		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
 		btn("bug", this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
