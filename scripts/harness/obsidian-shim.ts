@@ -8,6 +8,12 @@ export class TFile {
 	parent: { path: string } | null = null;
 }
 export class WorkspaceLeaf {}
+export function setIcon(el: HTMLElement, name: string): void {
+	const span = document.createElement("span");
+	span.className = "obsidian-icon-" + name;
+	span.textContent = name.slice(0, 2);
+	el.appendChild(span);
+}
 export class HoverPopover {}
 export class Notice {
 	constructor(public message: string) {
