@@ -87,13 +87,15 @@ The **Filters** button opens the panel (a live line says "Showing N of M"):
 - **hidden pages as faint dots**, so you still see where the filtered pages are
 - **Clear filters**, and a ✕ button right after the search box that clears the filters and the search in one click
 - **Saved views:** name the current filters and search, save them, pick them again (up to 20)
+- **One-click presets:** Orphans, Hubs, Recent (30 days), New (30 days), Sinks, Sources and Invert replace the active filter set in one click
+- **Collapsible left rail:** type chips, toolbar and the filter stack live in a rail that collapses to an icon strip to free canvas space; filters, search, selection and camera are saved with the pane
 
 Filters, search, selection and camera are saved with the pane, so the view comes back as you left it. The **log filter** shows only the pages a `wiki/log.md` operation (ingest, query, lint…) touched, matched by page name in the entry title.
 
 ## Growth: Flow and Replay
 
 - **Flow** is a wave that leaves the index and reaches **every page**, hop by hop. Rings spread from the index across the brain; at each hop comets run along the links to the pages reached next, the links just crossed glow and fade, and each arriving page flares. The status line counts the hops and the pages reached ("Flow: hop 3 of 6 · 41 of 89 pages") and ends with a summary. Because an LLM wiki's index links to everything, the links the index holds toward pages that other pages also link are held back: the wave goes first to the pages only the index knows and then spreads through the links between pages, so the hops show how the knowledge is really connected. Links followed backwards are drawn dimmer, and pages with no link at all to the rest of the wiki get a dashed arc from the index at the end. The wave ends on the latest created (or edited) page with a slow double ring; "stay in view" limits it to visible pages. With reduced motion the pages light up hop by hop without the comets. **Flow from index** on a selected page, and the automatic flow to a page you just created, still send a single packet along the shortest chain of links (a dashed arc where the link is missing).
-- **Replay** empties the brain and the pages return in creation order (or by last edit), each fed from the index. Pause, speed 0.5× to 4×, loop, **start from a date**, and drag the **scrubber** to jump to any point. A caption shows the date, the progress and the operations `wiki/log.md` recorded that day. If file dates are all the same (a vault restored from Git or iCloud), the log's dates place the pages.
+- **Replay** empties the brain and the pages return in creation order (or by last edit), each fed from the index. Pause, speed 0.5× to 4×, loop, **start from a date** (popup date picker), and drag the **scrubber** to jump to any point. A caption shows the date, the progress and the operations `wiki/log.md` recorded that day. If file dates are all the same (a vault restored from Git or iCloud), the log's dates place the pages.
 - **Lint** rings orphan pages, pages with broken links and pages without a type, with a clickable list.
 
 ## Color, size and legend
