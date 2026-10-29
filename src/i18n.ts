@@ -172,9 +172,7 @@ const EN = {
 	"keys.mouse": "Drag: rotate. Shift+drag or right drag: pan. Wheel: zoom. Double-click: open. Right-click: menu.",
 	"keys.legend": "The arc around a page is its charge before it fires. Red spikes inhibit. A dashed ring: edited in the last day.",
 	"keys.close": "Close",
-	"rail.toggle": "Show or hide the side rail",
-	"rail.collapse": "Collapse the side rail",
-	"rail.expand": "Expand the side rail",
+
 	"tip.card": "{type} · {inn} in · {out} out · edited {when}",
 	"time.now": "just now",
 	"time.minutes": "{n} min ago",
@@ -447,9 +445,7 @@ const PT: Dict = {
 	"keys.mouse": "Arrastar: girar. Shift+arrastar ou botão direito: mover. Roda: zoom. Duplo clique: abrir. Clique direito: menu.",
 	"keys.legend": "O arco em volta da página é a carga antes de disparar. Pulsos vermelhos inibem. Anel tracejado: editada no último dia.",
 	"keys.close": "Fechar",
-	"rail.toggle": "Mostrar ou ocultar a barra lateral",
-	"rail.collapse": "Recolher a barra lateral",
-	"rail.expand": "Expandir a barra lateral",
+
 	"tip.card": "{type} · {inn} entradas · {out} saídas · editada {when}",
 	"time.now": "agora há pouco",
 	"time.minutes": "há {n} min",
@@ -719,9 +715,7 @@ const ES: Dict = {
 	"keys.mouse": "Arrastrar: girar. Shift+arrastrar o botón derecho: mover. Rueda: zoom. Doble clic: abrir. Clic derecho: menú.",
 	"keys.legend": "El arco alrededor de una página es su carga antes de disparar. Los pulsos rojos inhiben. Anillo discontinuo: editada en el último día.",
 	"keys.close": "Cerrar",
-	"rail.toggle": "Mostrar u ocultar la barra lateral",
-	"rail.collapse": "Recolher la barra lateral",
-	"rail.expand": "Expandir la barra lateral",
+
 	"tip.card": "{type} · {inn} entradas · {out} salidas · editada {when}",
 	"time.now": "hace un momento",
 	"time.minutes": "hace {n} min",
@@ -991,9 +985,7 @@ const FR: Dict = {
 	"keys.mouse": "Glisser : tourner. Maj+glisser ou bouton droit : déplacer. Molette : zoom. Double-clic : ouvrir. Clic droit : menu.",
 	"keys.legend": "L'arc autour d'une page est sa charge avant de se déclencher. Les impulsions rouges inhibent. Anneau pointillé : modifiée depuis un jour.",
 	"keys.close": "Fermer",
-	"rail.toggle": "Afficher ou masquer la barre latérale",
-	"rail.collapse": "Replier la barre latérale",
-	"rail.expand": "Déplier la barre latérale",
+
 	"tip.card": "{type} · {inn} entrées · {out} sorties · modifiée {when}",
 	"time.now": "à l'instant",
 	"time.minutes": "il y a {n} min",
