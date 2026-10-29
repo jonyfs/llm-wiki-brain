@@ -1,10 +1,57 @@
 .llm-wiki-brain {
 	position: relative;
 	display: flex;
-	flex-direction: column;
+	flex-direction: row;
 	padding: 0;
 	overflow: hidden;
 	container-type: inline-size;
+}
+.llm-wiki-brain-rail {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	width: 260px;
+	max-width: 40vw;
+	padding: var(--size-4-2);
+	background: var(--background-secondary);
+	border-right: 1px solid var(--background-modifier-border);
+	overflow-y: auto;
+	overflow-x: hidden;
+	flex: 0 0 auto;
+	transition: width 120ms ease;
+}
+.llm-wiki-brain-rail.is-collapsed {
+	width: 44px;
+	padding: var(--size-4-1);
+}
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-btn-label,
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-chip-label,
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-n,
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-search input[type="search"],
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-stack,
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-bar .llm-wiki-brain-chip span:not(.llm-wiki-brain-dot) {
+	display: none;
+}
+.llm-wiki-brain-rail-toggle {
+	align-self: flex-end;
+}
+.llm-wiki-brain-btn-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+.llm-wiki-brain-btn-label {
+	margin-left: 6px;
+}
+.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-btn-label {
+	display: none;
+}
+.llm-wiki-brain-stage {
+	position: relative;
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
 }
 .llm-wiki-brain-stage {
 	position: relative;
@@ -20,10 +67,6 @@
 	cursor: grabbing;
 }
 .llm-wiki-brain-bar {
-	position: absolute;
-	top: var(--size-4-2);
-	left: var(--size-4-2);
-	z-index: 1;
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--size-4-1);
@@ -59,13 +102,8 @@
 	pointer-events: none;
 }
 .llm-wiki-brain-tools {
-	position: absolute;
-	top: var(--size-4-2);
-	right: var(--size-4-2);
-	z-index: 1;
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: flex-end;
 	gap: var(--size-4-1);
 }
 .llm-wiki-brain-tools button[aria-pressed="true"] {
@@ -73,17 +111,10 @@
 	color: var(--text-on-accent);
 }
 .llm-wiki-brain-stack {
-	position: absolute;
-	top: 44px;
-	left: var(--size-4-2);
-	z-index: 1;
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
 	gap: var(--size-4-1);
-	width: min(420px, calc(100% - var(--size-4-4)));
-	max-height: calc(100% - 84px);
-	overflow-y: auto;
+	width: 100%;
 }
 .llm-wiki-brain-search {
 	display: flex;

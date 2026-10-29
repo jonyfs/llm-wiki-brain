@@ -1,4 +1,4 @@
-import { HoverPopover, ItemView, Menu, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { HoverPopover, ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
 import { filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER } from "./filters";
@@ -71,6 +71,9 @@ export class BrainView extends ItemView {
 	private perfEl!: HTMLElement;
 	private info!: HTMLElement;
 	private panel!: HTMLElement;
+	private rail!: HTMLElement;
+	private railToggle!: HTMLButtonElement;
+	private railCollapsed = false;
 	private lintBox!: HTMLElement;
 	private search!: HTMLInputElement;
 	private toolsRow!: HTMLElement;
@@ -189,25 +192,32 @@ export class BrainView extends ItemView {
 		root.addClass("llm-wiki-brain");
 		const s = this.plugin.settings;
 
-		const bar = root.createDiv({ cls: "llm-wiki-brain-bar" });
+		// Collapsible rail on the left: holds the type chips, the toolbar and the search/filter stack.
+		// Collapsed, it shrinks to an icon strip so the canvas keeps the space.
+		this.rail = root.createDiv({ cls: "llm-wiki-brain-rail" });
+		this.railToggle = this.rail.createEl("button", { cls: "llm-wiki-brain-rail-toggle", attr: { "aria-label": this.t("rail.toggle"), title: this.t("rail.toggle") } });
+		setIcon(this.railToggle, "panel-left-close");
+		this.railToggle.addEventListener("click", () => this.toggleRail());
+
+		const bar = this.rail.createDiv({ cls: "llm-wiki-brain-bar" });
 		for (const t of TYPES) {
-			const chip = bar.createEl("button", { cls: "llm-wiki-brain-chip", attr: { "aria-pressed": "true", "data-type": t, "aria-label": this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }) } });
+			const chip = bar.createEl("button", { cls: "llm-wiki-brain-chip", attr: { "aria-pressed": "true", "data-type": t, "aria-label": this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }), title: this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }) } });
 			chip.createSpan({ cls: "llm-wiki-brain-dot" });
-			chip.createSpan({ text: this.t(("type." + t) as StringKey) });
+			chip.createSpan({ cls: "llm-wiki-brain-chip-label", text: this.t(("type." + t) as StringKey) });
 			chip.createSpan({ cls: "llm-wiki-brain-n" });
 			chip.addEventListener("click", () => this.toggleType(t));
 			this.chips.set(t, chip);
 		}
-		const more = bar.createEl("button", { text: "⋯", cls: "llm-wiki-brain-more", attr: { "aria-label": this.t("btn.more"), title: this.t("btn.more") } });
-		more.addEventListener("click", () => {
-			// Wide panes show the toolbar unless collapsed; narrow panes (see the container query in styles.css) hide it unless open.
-			const hidden = getComputedStyle(this.toolsRow).display === "none";
-			this.toolsRow.toggleClass("is-collapsed", !hidden);
-			this.toolsRow.toggleClass("is-open", hidden);
-		});
 
-		this.toolsRow = root.createDiv({ cls: "llm-wiki-brain-tools" });
+		this.toolsRow = this.rail.createDiv({ cls: "llm-wiki-brain-tools" });
 		this.buildTools();
+
+		const stack = this.rail.createDiv({ cls: "llm-wiki-brain-stack" });
+		this.buildSearchRow(stack);
+		this.chipsRow = stack.createDiv({ cls: "llm-wiki-brain-active" });
+		this.results = stack.createDiv({ cls: "llm-wiki-brain-results" });
+		this.results.hide();
+		this.buildPanel(stack);
 
 		this.replayBar = root.createDiv({ cls: "llm-wiki-brain-replaybar" });
 		this.pauseBtn = this.replayBar.createEl("button", { text: this.t("replay.pause") });
@@ -219,14 +229,6 @@ export class BrainView extends ItemView {
 		});
 		this.replayCaption = this.replayBar.createSpan({ cls: "llm-wiki-brain-replaycap", attr: { "aria-live": "polite" } });
 		this.replayBar.hide();
-
-		// One column under the toolbar: search, active filter chips, results and the filters panel never overlap.
-		const stack = root.createDiv({ cls: "llm-wiki-brain-stack" });
-		this.buildSearchRow(stack);
-		this.chipsRow = stack.createDiv({ cls: "llm-wiki-brain-active" });
-		this.results = stack.createDiv({ cls: "llm-wiki-brain-results" });
-		this.results.hide();
-		this.buildPanel(stack);
 
 		this.stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
 		this.canvas = this.stage.createEl("canvas", { attr: { tabindex: "0", role: "img", "aria-label": this.t("canvas.aria") } });
@@ -289,13 +291,16 @@ export class BrainView extends ItemView {
 
 	private buildTools(): void {
 		const tools = this.toolsRow;
-		const btn = (label: string, title: string, fn: () => void) => {
-			const b = tools.createEl("button", { text: label, attr: { "aria-label": title, title } });
+		const btn = (icon: string, label: string, title: string, fn: () => void) => {
+			const b = tools.createEl("button", { attr: { "aria-label": title, title } });
+			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+			setIcon(ic, icon);
+			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
 			b.addEventListener("click", fn);
 			return b;
 		};
-		btn(this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
-		this.replayBtn = btn(this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
+		btn("workflow", this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
+		this.replayBtn = btn("history", this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
 		const modeSel = tools.createEl("select", { attr: { "aria-label": this.t("replay.mode.aria"), title: this.t("replay.mode.aria") } });
 		modeSel.createEl("option", { value: "ctime", text: this.t("replay.mode.created") });
 		modeSel.createEl("option", { value: "mtime", text: this.t("replay.mode.edited") });
@@ -311,16 +316,16 @@ export class BrainView extends ItemView {
 		fromIn.addEventListener("change", () => (this.replayFrom = fromIn.value ? Date.parse(fromIn.value + "T00:00:00Z") : 0));
 		const loopIn = tools.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop", "aria-label": this.t("replay.loop"), title: this.t("replay.loop") } });
 		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
-		btn(this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
-		this.rotateBtn = btn(this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
+		btn("bug", this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
+		this.rotateBtn = btn("refresh-cw", this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
 			const on = !this.engine?.isAuto();
 			this.engine?.setAuto(on);
 			this.rotateBtn.setAttribute("aria-pressed", String(on));
 		});
-		btn(this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
-		btn(this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
-		btn(this.t("btn.export"), this.t("btn.export.title"), () => void this.exportPng());
-		btn("?", this.t("btn.help"), () => this.flip(this.keysCard));
+		btn("rotate-ccw", this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
+		btn("maximize-2", this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
+		btn("image", this.t("btn.export"), this.t("btn.export.title"), () => void this.exportPng());
+		btn("keyboard", this.t("btn.help"), this.t("btn.help"), () => this.flip(this.keysCard));
 	}
 
 	private buildSearchRow(root: HTMLElement): void {
@@ -343,17 +348,23 @@ export class BrainView extends ItemView {
 				this.applySearch(false);
 			}
 		});
-		const small = (label: string, aria: string, fn: () => void) => {
-			const b = row.createEl("button", { text: label, attr: { "aria-label": aria, title: aria } });
+		const small = (icon: string | null, label: string, aria: string, fn: () => void) => {
+			const b = row.createEl("button", { attr: { "aria-label": aria, title: aria } });
+			if (icon) { const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" }); setIcon(ic, icon); }
+			else b.setText(label);
+			if (icon) b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
 			b.addEventListener("click", fn);
 			return b;
 		};
-		this.clearBtn = small("✕", this.t("filters.clear"), () => this.clearAll()); // right after the search box: clears the filters and the search
-		small("?", this.t("search.help"), () => this.flip(this.helpCard));
-		small("‹", this.t("search.prev.aria"), () => this.stepHit(-1));
-		small("›", this.t("search.next.aria"), () => this.stepHit(1));
-		small(this.t("search.copy"), this.t("search.copy.title"), () => this.copyHits());
-		this.filterBtn = row.createEl("button", { text: this.t("filters.button"), attr: { "aria-expanded": "false" } });
+		this.clearBtn = small("x", "✕", this.t("filters.clear"), () => this.clearAll()); // right after the search box: clears the filters and the search
+		small("help-circle", "?", this.t("search.help"), () => this.flip(this.helpCard));
+		small("chevron-left", "‹", this.t("search.prev.aria"), () => this.stepHit(-1));
+		small("chevron-right", "›", this.t("search.next.aria"), () => this.stepHit(1));
+		small(null, this.t("search.copy"), this.t("search.copy.title"), () => this.copyHits());
+		this.filterBtn = row.createEl("button", { attr: { "aria-expanded": "false", "aria-label": this.t("filters.button"), title: this.t("filters.button") } });
+		const fIcon = this.filterBtn.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+		setIcon(fIcon, "filter");
+		this.filterBtn.createSpan({ cls: "llm-wiki-brain-btn-label", text: this.t("filters.button") });
 		this.filterBtn.addEventListener("click", () => {
 			const open = this.panel.hasClass("is-open");
 			this.panel.toggleClass("is-open", !open);
@@ -404,7 +415,7 @@ export class BrainView extends ItemView {
 			["invert", this.t("preset.invert")],
 		];
 		for (const [p, label] of presetDefs) {
-			const b = presets.createEl("button", { text: label, attr: { "aria-pressed": "false" } });
+			const b = presets.createEl("button", { text: label, attr: { "aria-pressed": "false", title: label } });
 			b.addEventListener("click", () => this.applyPreset(p));
 		}
 		this.contentEl.addEventListener("keydown", (e) => {
@@ -547,7 +558,7 @@ export class BrainView extends ItemView {
 
 	/** The syntax card (clickable examples) and the shortcuts card. */
 	private buildCards(): void {
-		const close = (card: HTMLElement) => card.createEl("button", { text: "×", cls: "llm-wiki-brain-card-x", attr: { "aria-label": this.t("keys.close") } }).addEventListener("click", () => card.hide());
+		const close = (card: HTMLElement) => card.createEl("button", { text: "×", cls: "llm-wiki-brain-card-x", attr: { "aria-label": this.t("keys.close"), title: this.t("keys.close") } }).addEventListener("click", () => card.hide());
 		const h = this.helpCard;
 		close(h);
 		h.createEl("strong", { text: this.t("search.help.title") });
@@ -629,6 +640,15 @@ export class BrainView extends ItemView {
 			this.applySearch(false);
 			this.applyColorSize();
 		}
+	}
+
+	/** Toggle the left rail between expanded and collapsed (icon-only). */
+	toggleRail(): void {
+		this.railCollapsed = !this.railCollapsed;
+		this.rail.toggleClass("is-collapsed", this.railCollapsed);
+		setIcon(this.railToggle, this.railCollapsed ? "panel-left-open" : "panel-left-close");
+		this.railToggle.setAttribute("aria-label", this.t(this.railCollapsed ? "rail.expand" : "rail.collapse"));
+		this.railToggle.setAttribute("title", this.t(this.railCollapsed ? "rail.expand" : "rail.collapse"));
 	}
 
 	/** Clear every filter, the isolated neighbourhood or selection, and the search. */
