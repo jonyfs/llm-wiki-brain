@@ -575,13 +575,67 @@ export class BrainEngine {
 	}
 
 	resetView(): void {
-		this.yaw = 0.6;
-		this.pitch = -0.22;
 		this.vyaw = this.vpitch = 0;
-		this.tz = 1;
-		this.tpx = this.tpy = 0;
-		this.animating = true;
 		this.select(-1);
+		// Try several yaw/pitch presets and pick the one with the smallest projected bounding box.
+		const presets: [number, number][] = [[0.6, -0.22], [0, 0], [1.2, -0.3], [0.3, -0.15], [Math.PI / 4, -0.2]];
+		let bestYaw = 0.6, bestPitch = -0.22, bestArea = Infinity;
+		const savedZoom = this.zoom, savedPanX = this.panX, savedPanY = this.panY;
+		for (const [y, p] of presets) {
+			this.yaw = y; this.pitch = p;
+			this.zoom = 1; this.panX = 0; this.panY = 0;
+			this.project();
+			let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+			for (const n of this.nodes) {
+				if (n.off) continue;
+				minX = Math.min(minX, n.px); maxX = Math.max(maxX, n.px);
+				minY = Math.min(minY, n.py); maxY = Math.max(maxY, n.py);
+			}
+			if (isFinite(minX)) {
+				const area = (maxX - minX) * (maxY - minY);
+				if (area < bestArea) { bestArea = area; bestYaw = y; bestPitch = p; }
+			}
+		}
+		this.yaw = bestYaw; this.pitch = bestPitch;
+		// Fit all nodes in view: compute zoom and pan so every node is visible and centered.
+		if (this.nodes.length > 0) {
+			const savedZoom = this.zoom, savedPanX = this.panX, savedPanY = this.panY;
+			// Project with zoom=1, pan=0 to determine the required zoom.
+			this.zoom = 1; this.panX = 0; this.panY = 0;
+			this.project();
+			let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+			for (const n of this.nodes) {
+				if (n.off) continue;
+				minX = Math.min(minX, n.px); maxX = Math.max(maxX, n.px);
+				minY = Math.min(minY, n.py); maxY = Math.max(maxY, n.py);
+			}
+			let newZoom = 1, newPanX = 0, newPanY = 0;
+			if (isFinite(minX)) {
+				const pad = 60;
+				const bw = maxX - minX + pad * 2, bh = maxY - minY + pad * 2;
+				newZoom = clamp(Math.min(this.W / bw, this.H / bh), 0.55, 4);
+				// Project with new zoom to compute the centering pan.
+				this.zoom = newZoom;
+				this.project();
+				minX = Infinity; maxX = -Infinity; minY = Infinity; maxY = -Infinity;
+				for (const n of this.nodes) {
+					if (n.off) continue;
+					minX = Math.min(minX, n.px); maxX = Math.max(maxX, n.px);
+					minY = Math.min(minY, n.py); maxY = Math.max(maxY, n.py);
+				}
+				if (isFinite(minX)) {
+					newPanX = this.W / 2 - (minX + maxX) / 2;
+					newPanY = this.H / 2 - (minY + maxY) / 2;
+				}
+			}
+			// Restore current values so the animation starts from where the camera is now.
+			this.zoom = savedZoom; this.panX = savedPanX; this.panY = savedPanY;
+			// Set animation targets.
+			this.tz = newZoom; this.tpx = newPanX; this.tpy = newPanY;
+		} else {
+			this.tz = 1; this.tpx = this.tpy = 0;
+		}
+		this.animating = true;
 		this.start();
 	}
 

@@ -1,0 +1,8 @@
+[    7175ms] TypeError: Cannot read properties of undefined (reading 'hasClass')
+    at http://localhost:8765/assets/demo.js:2:21189
+    at m (http://localhost:8765/assets/demo.js:2:20155)
+    at s (http://localhost:8765/assets/demo.js:2:20261)
+    at X.buildFilterIcons (http://localhost:8765/assets/demo.js:2:21106)
+    at X.onOpen (http://localhost:8765/assets/demo.js:2:13326)
+    at re (http://localhost:8765/assets/demo.js:3:669)
+    at IntersectionObserver.rootMargin (http://localhost:8765/assets/demo.js:3:1035)

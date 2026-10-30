@@ -1,0 +1,42 @@
+name: Visual Regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run site
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+      - name: Capture screenshots
+        run: |
+          python3 -m http.server 8765 --directory site/ &
+          sleep 2
+          npx playwright screenshot http://localhost:8765/ /tmp/desktop.png --viewport-size=1440,900
+          npx playwright screenshot http://localhost:8765/ /tmp/tablet.png --viewport-size=768,1024
+          npx playwright screenshot http://localhost:8765/ /tmp/mobile.png --viewport-size=390,844
+      - name: Axe accessibility audit
+        run: |
+          python3 -m http.server 8765 --directory site/ &
+          sleep 2
+          npx @axe-core/cli http://localhost:8765/ --exit || true
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression
+          path: /tmp/*.png
+          retention-days: 7
