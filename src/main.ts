@@ -32,6 +32,7 @@ class AskModal extends Modal {
 
 export default class BrainPlugin extends Plugin {
 	settings: BrainSettings = DEFAULT_SETTINGS;
+	settingTab: BrainSettingTab | null = null;
 	layout: Layout = {};
 	lang: Lang = "en";
 	private saveLayoutLater = debounce((l: Layout) => {
@@ -66,7 +67,8 @@ export default class BrainPlugin extends Plugin {
 		this.addCommand({ id: "export", name: t("cmd.export"), callback: () => void this.withViews((vs) => vs.forEach((v) => void v.exportPng())) });
 		this.addCommand({ id: "canvas", name: t("cmd.canvas"), callback: () => this.views().forEach((v) => void v.makeCanvas()) });
 		this.addCommand({ id: "clear-filters", name: t("cmd.clearFilters"), callback: () => this.views().forEach((v) => v.clearAll()) });
-		this.addSettingTab(new BrainSettingTab(this.app, this));
+		this.settingTab = new BrainSettingTab(this.app, this);
+		this.addSettingTab(this.settingTab);
 
 		let pending: string | null = null; // a page created a moment ago: once it is indexed, information flows to it
 		const resync = debounce(() => {
@@ -192,6 +194,17 @@ class BrainSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		const t = (k: StringKey, v?: Vars) => this.plugin.t(k, v);
+		const section = (title: string) => containerEl.createEl("h3", { cls: "llm-wiki-brain-settings-section", text: title });
+		// Reset to defaults (destructive, confirmed).
+		const reset = containerEl.createEl("button", { text: t("set.reset"), cls: "mod-warning" });
+		reset.addEventListener("click", () => {
+			if (!window.confirm(t("set.resetConfirm"))) return;
+			this.plugin.settings = { ...DEFAULT_SETTINGS };
+			void this.plugin.saveSettings();
+		});
+		containerEl.createEl("hr");
+
+		section(t("set.section.vault"));
 		new Setting(containerEl)
 			.setName(t("set.lang.name"))
 			.setDesc(t("set.lang.desc"))
@@ -211,6 +224,7 @@ class BrainSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		section(t("set.section.performance"));
 		new Setting(containerEl)
 			.setName(t("set.max.name"))
 			.setDesc(t("set.max.desc"))
@@ -220,6 +234,7 @@ class BrainSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		section(t("set.section.flow"));
 		new Setting(containerEl)
 			.setName(t("set.ambient.name"))
 			.setDesc(t("set.ambient.desc"))
@@ -282,6 +297,7 @@ class BrainSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		section(t("set.section.display"));
 		new Setting(containerEl)
 			.setName(t("set.perf.name"))
 			.setDesc(t("set.perf.desc"))
@@ -317,6 +333,7 @@ class BrainSettingTab extends PluginSettingTab {
 					await this.plugin.persist({ explorerHover: v });
 				}),
 			);
+		section(t("set.section.accessibility"));
 		new Setting(containerEl)
 			.setName(t("set.reduce.name"))
 			.setDesc(t("set.reduce.desc"))

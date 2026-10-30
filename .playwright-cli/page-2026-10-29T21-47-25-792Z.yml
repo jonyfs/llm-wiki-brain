@@ -1,0 +1,309 @@
+- generic [active] [ref=e1]:
+  - link "Ir para o conteúdo" [ref=e2] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - link "LLM Wiki Brain" [ref=e5] [cursor=pointer]:
+        - /url: "#top"
+      - generic [ref=e7]:
+        - button "Alternar o tema" [ref=e8] [cursor=pointer]
+        - button "Menu" [ref=e12] [cursor=pointer]
+  - main [ref=e15]:
+    - generic [ref=e17]:
+      - generic [ref=e18]: Plugin do Obsidian · Sem rede · MIT
+      - heading "Veja sua wiki como um cérebro 3D vivo" [level=1] [ref=e19]
+      - paragraph [ref=e20]:
+        - strong [ref=e21]: Cada página é um neurônio, cada link uma sinapse.
+        - text: O LLM Wiki Brain transforma seu cofre do Obsidian num cérebro que você gira, busca, filtra e reproduz, e mostra como a informação flui do índice até todas as páginas.
+      - generic [ref=e22]:
+        - link "Instalar o plugin" [ref=e23] [cursor=pointer]:
+          - /url: "#start"
+        - link "Testar a demonstração" [ref=e24] [cursor=pointer]:
+          - /url: "#demo"
+        - link "Ver no GitHub" [ref=e25] [cursor=pointer]:
+          - /url: https://github.com/jonyfs/llm-wiki-brain
+      - paragraph [ref=e26]:
+        - generic [ref=e27]: Obsidian 1.8.7 ou mais novo
+        - generic [ref=e28]: Desktop e celular
+        - generic [ref=e29]: Sem telemetria, sem dependências
+        - generic [ref=e30]: EN · PT · ES · FR
+      - figure [ref=e31]:
+        - 'img "A vista do plugin: um cérebro 3D de páginas ligadas, com chips de tipo e barra de ferramentas no alto, busca com um chip de filtro ativo e lista de resultados, uma página selecionada com entradas e saídas, legenda e linha de status" [ref=e32]'
+      - paragraph [ref=e33]: "A vista do próprio plugin num cofre de demonstração: uma busca com filtro ativo, uma página selecionada com entradas e saídas, uma onda de Flow em movimento, a legenda e a linha de status."
+    - generic [ref=e35]:
+      - paragraph [ref=e36]: Experimente
+      - heading "O plugin de verdade, rodando no navegador" [level=2] [ref=e37]
+      - paragraph [ref=e38]:
+        - text: Esta é a vista e o motor do próprio plugin sobre uma wiki de LLM inventada. Aperte
+        - strong [ref=e39]: Flow
+        - text: para enviar informação do índice a todas as páginas, arraste para girar, clique num neurônio, digite na busca.
+      - generic [ref=e40]: Carregando a demonstração…
+      - paragraph [ref=e43]: "Dica: Alt+arrastar seleciona uma área, ? lista os atalhos. As notas da demonstração são inventadas; as suas nunca saem da sua máquina."
+    - generic [ref=e45]:
+      - paragraph [ref=e46]: O que faz
+      - heading "Um retrato vivo da sua wiki" [level=2] [ref=e47]
+      - paragraph [ref=e48]: Feito para wikis de LLM (fontes, entidades, conceitos, sínteses, um índice e um log) e útil em qualquer cofre.
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - heading "Um cérebro feito das suas notas" [level=3] [ref=e51]
+          - paragraph [ref=e52]: Páginas ligadas dividem uma região do cérebro. Uma nuvem suave mostra o volume e os neurônios o preenchem, de dez páginas a dez mil.
+        - generic [ref=e53]:
+          - 'heading "Flow: a informação chega a todas as páginas" [level=3] [ref=e54]'
+          - paragraph [ref=e55]: Uma onda sai do índice e atravessa os links salto a salto, com anéis, cometas e links brilhando, e um contador de páginas alcançadas.
+        - generic [ref=e56]:
+          - heading "Reveja a wiki crescendo" [level=3] [ref=e57]
+          - paragraph [ref=e58]: Veja as páginas voltarem na ordem de criação, com o que o log registrou em cada dia, um controle deslizante, velocidade e repetição.
+        - generic [ref=e59]:
+          - heading "Busca e Pergunta" [level=3] [ref=e60]
+          - paragraph [ref=e61]:
+            - text: Palavras,
+            - code [ref=e62]: "tag:"
+            - text: ","
+            - code [ref=e63]: links:>3
+            - text: ","
+            - code [ref=e64]: edited:<7d
+            - text: ","
+            - code [ref=e65]: is:orphan
+            - text: ", regex. Aperte Enter para perguntar: a resposta se espalha pelos links."
+        - generic [ref=e66]:
+          - heading "Filtros e visões salvas" [level=3] [ref=e67]
+          - paragraph [ref=e68]: Tipo, pasta, tag, links, datas, direção, uma consulta de filtro e o log. Os filtros ativos são chips que você remove com um clique.
+        - generic [ref=e69]:
+          - heading "Selecionar, isolar, exportar" [level=3] [ref=e70]
+          - paragraph [ref=e71]: Selecione um grupo por clique, área ou lobo; isole, copie como links, transforme num Canvas do Obsidian ou salve a vista em PNG.
+        - generic [ref=e72]:
+          - heading "Aponte o que está quebrado" [level=3] [ref=e73]
+          - paragraph [ref=e74]: Órfãs, links quebrados e páginas sem tipo ganham um anel e uma lista clicável, para a wiki ficar saudável.
+        - generic [ref=e75]:
+          - heading "Rápido e privado" [level=3] [ref=e76]
+          - paragraph [ref=e77]: Canvas 2D, sem rede, sem telemetria. Cerca de 25 ms por quadro com 10.000 páginas no nosso teste sintético; neurônios completos só onde são grandes o bastante para ver.
+        - generic [ref=e78]:
+          - heading "Quatro idiomas" [level=3] [ref=e79]
+          - paragraph [ref=e80]: Inglês, português (Brasil), espanhol e francês, seguindo o idioma do Obsidian.
+    - generic [ref=e82]:
+      - paragraph [ref=e83]: Como funciona
+      - heading "De um cofre a um cérebro" [level=2] [ref=e84]
+      - paragraph [ref=e85]: Tudo é derivado do que o Obsidian já sabe.
+      - list [ref=e87]:
+        - listitem [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e90]: Seu cofre
+            - generic [ref=e91]:
+              - text: Notas,
+              - code [ref=e92]: "[[links]]"
+              - text: ", tags, frontmatter,"
+              - code [ref=e93]: wiki/log.md
+          - generic [aria-hidden] [ref=e94]: →
+        - listitem [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Um grafo dirigido
+            - generic [ref=e98]: Um link sai da página que o contém e chega à página para a qual aponta
+          - generic [aria-hidden] [ref=e99]: →
+        - listitem [ref=e100]:
+          - generic [ref=e101]:
+            - generic [ref=e102]: Um modelo de neurônio
+            - generic [ref=e103]: As páginas somam entradas, disparam num limiar, aprendem e esmaecem
+          - generic [aria-hidden] [ref=e104]: →
+        - listitem [ref=e105]:
+          - generic [ref=e106]:
+            - generic [ref=e107]: O cérebro
+            - generic [ref=e108]: Lobos, dendritos, axônios e uma onda que você acompanha
+          - text: →
+    - generic [ref=e110]:
+      - paragraph [ref=e111]: A analogia
+      - heading "O modelo do neurônio" [level=2] [ref=e112]
+      - paragraph [ref=e113]: A imagem segue a biologia, então o que você vê diz algo sobre a sua wiki.
+      - table [ref=e115]:
+        - rowgroup [ref=e116]:
+          - row [ref=e117]:
+            - columnheader "Biologia" [ref=e118]
+            - columnheader "No plugin" [ref=e119]
+        - rowgroup [ref=e120]:
+          - row [ref=e121]:
+            - cell "Dendritos" [ref=e122]
+            - 'cell "Entradas: as páginas que apontam para esta" [ref=e123]'
+          - row [ref=e124]:
+            - cell "Axônio" [ref=e125]
+            - 'cell "Saídas: os links que esta página contém" [ref=e126]'
+          - row [ref=e127]:
+            - cell "Força sináptica" [ref=e128]
+            - cell "Quantas vezes um link se repete; links usados juntos ficam mais fortes e esmaecem quando ociosos" [ref=e129]
+          - row [ref=e130]:
+            - cell "Limiar de disparo" [ref=e131]
+            - cell "Uma página dispara tudo ou nada quando a carga recebida chega a um limiar que cresce com suas entradas; o arco em volta mostra o quanto falta" [ref=e132]
+          - row [ref=e133]:
+            - cell "Inibição" [ref=e134]
+            - cell [ref=e135]:
+              - text: Um link
+              - code [ref=e136]: "contradicts:"
+              - text: no frontmatter reduz a carga do alvo; seus pulsos são vermelhos
+          - row [ref=e137]:
+            - cell "Mielina" [ref=e138]
+            - cell "Links entre páginas movimentadas conduzem mais rápido, em saltos" [ref=e139]
+          - row [ref=e140]:
+            - cell "Atenção" [ref=e141]
+            - cell "Páginas parecidas mas sem link acendem por um instante, com pesos" [ref=e142]
+    - generic [ref=e144]:
+      - paragraph [ref=e145]: Sintaxe da busca
+      - heading "Pergunte à sua wiki" [level=2] [ref=e146]
+      - paragraph [ref=e147]: "Uma caixa de busca filtra, destaca e pergunta. Aperte Enter para perguntar: a resposta se espalha pelos links."
+      - table [ref=e149]:
+        - rowgroup [ref=e150]:
+          - row [ref=e151]:
+            - columnheader "Sintaxe" [ref=e152]
+            - columnheader "Significado" [ref=e153]
+        - rowgroup [ref=e154]:
+          - row [ref=e155]:
+            - cell [ref=e156]:
+              - code [ref=e157]: attention cache
+            - cell "Todas as palavras devem aparecer no nome, caminho, títulos ou tags" [ref=e158]
+          - row [ref=e159]:
+            - cell [ref=e160]:
+              - code [ref=e161]: tag:ai or tag:ml
+            - cell "Qualquer um dos lados pode casar" [ref=e162]
+          - row [ref=e163]:
+            - cell [ref=e164]:
+              - code [ref=e165]: "-type:source"
+            - cell "Excluir um termo" [ref=e166]
+          - row [ref=e167]:
+            - cell [ref=e168]:
+              - code [ref=e169]: links:>3
+            - cell "Número de links" [ref=e170]
+          - row [ref=e171]:
+            - cell [ref=e172]:
+              - code [ref=e173]: edited:<7d
+              - code [ref=e174]: created:>2026-01-01
+            - cell "Idade ou data" [ref=e175]
+          - row [ref=e176]:
+            - cell [ref=e177]:
+              - code [ref=e178]: prop:status=draft
+            - 'cell "Propriedade do frontmatter: igual, contém, existe" [ref=e179]'
+          - row [ref=e180]:
+            - cell [ref=e181]:
+              - code [ref=e182]: is:orphan
+              - code [ref=e183]: is:broken
+              - code [ref=e184]: is:hub
+            - 'cell "Estado da página: orphan, broken, untyped, index, log, hub" [ref=e185]'
+          - row [ref=e186]:
+            - cell [ref=e187]:
+              - code [ref=e188]: to:attention
+              - code [ref=e189]: from:index
+            - cell "Aponta para uma página / é apontada por uma página" [ref=e190]
+          - row [ref=e191]:
+            - cell [ref=e192]:
+              - code [ref=e193]: /kv-?cache/
+            - cell "Expressão regular" [ref=e194]
+    - generic [ref=e196]:
+      - paragraph [ref=e197]: Use
+      - heading "Comandos e atalhos" [level=2] [ref=e198]
+      - generic [ref=e199]:
+        - generic [ref=e200]:
+          - heading "Comandos" [level=3] [ref=e201]
+          - list [ref=e202]:
+            - listitem [ref=e203]: Abrir a visão do cérebro
+            - listitem [ref=e204]: Perguntar ao cérebro
+            - listitem [ref=e205]: Enviar informação do índice a todas as páginas
+            - listitem [ref=e206]: Refazer o crescimento da wiki na ordem de criação
+            - listitem [ref=e207]: Executar a camada de lint da wiki
+            - listitem [ref=e208]: Focar a caixa de busca
+            - listitem [ref=e209]: Limpar filtros e busca
+            - listitem [ref=e210]: Salvar a vista como imagem
+            - listitem [ref=e211]: Criar um canvas a partir da seleção
+        - generic [ref=e212]:
+          - heading "Teclado e mouse" [level=3] [ref=e213]
+          - list [ref=e214]:
+            - listitem [ref=e215]: "Arrastar girar · Shift+arrastar mover · roda: zoom"
+            - listitem [ref=e216]: Clique selecionar · Cmd/Ctrl+clique somar · Alt+arrastar selecionar uma área
+            - listitem [ref=e217]: 1 2 3 frente, topo, lado · 0 reiniciar
+            - listitem [ref=e218]: n / p próximo ou anterior hub · Alt+setas pular para um vizinho
+            - listitem [ref=e219]: Enter abrir · Cmd/Ctrl+Enter abrir ao lado · Esc limpar
+            - listitem [ref=e220]: "? lista todos os atalhos · clique direito abre um menu"
+    - generic [ref=e222]:
+      - paragraph [ref=e223]: Instalar
+      - heading "Obtenha o LLM Wiki Brain" [level=2] [ref=e224]
+      - paragraph [ref=e225]: O plugin ainda não está no diretório da comunidade do Obsidian. Instale com o BRAT ou à mão.
+      - generic [ref=e226]:
+        - list [ref=e228]:
+          - listitem [ref=e229]:
+            - strong [ref=e230]: "BRAT (beta):"
+            - text: no Obsidian, instale o plugin BRAT, rode
+            - emphasis [ref=e231]: "BRAT: Add a beta plugin"
+            - text: e informe
+            - code [ref=e232]: jonyfs/llm-wiki-brain
+            - text: .
+          - listitem [ref=e233]:
+            - strong [ref=e234]: "À mão:"
+            - text: baixe
+            - code [ref=e235]: main.js
+            - text: ","
+            - code [ref=e236]: manifest.json
+            - text: e
+            - code [ref=e237]: styles.css
+            - text: da
+            - link "última release" [ref=e238] [cursor=pointer]:
+              - /url: https://github.com/jonyfs/llm-wiki-brain/releases/latest
+            - text: para
+            - code [ref=e239]: <cofre>/.obsidian/plugins/llm-wiki-brain/
+            - text: .
+          - listitem [ref=e240]:
+            - text: Ative o
+            - emphasis [ref=e241]: LLM Wiki Brain
+            - text: em Configurações → Plugins da comunidade e clique no ícone do cérebro na faixa lateral.
+        - generic [ref=e242]:
+          - generic [ref=e243]:
+            - text: terminal
+            - generic [ref=e244]: "# inside your vault"
+            - generic [ref=e245]: mkdir -p .obsidian/plugins/llm-wiki-brain
+            - generic [ref=e246]: cd .obsidian/plugins/llm-wiki-brain
+            - generic [ref=e247]: for f in main.js manifest.json styles.css; do
+            - generic [ref=e248]: curl -sLO https://github.com/jonyfs/llm-wiki-brain/releases/latest/download/$f
+            - generic [ref=e249]: done
+          - button "Copiar" [ref=e250] [cursor=pointer]
+    - generic [ref=e252]:
+      - paragraph [ref=e253]: FAQ
+      - heading "Perguntas" [level=2] [ref=e254]
+      - group [ref=e255]:
+        - generic "Envia minhas notas para algum lugar?" [ref=e256] [cursor=pointer]
+      - group [ref=e257]:
+        - generic "Funciona em qualquer cofre?" [ref=e258] [cursor=pointer]
+      - group [ref=e259]:
+        - generic "Quantas páginas ele mostra?" [ref=e260] [cursor=pointer]
+      - group [ref=e261]:
+        - generic "Funciona no celular?" [ref=e262] [cursor=pointer]
+      - group [ref=e263]:
+        - generic "Quais idiomas fala?" [ref=e264] [cursor=pointer]
+      - group [ref=e265]:
+        - generic "Tem relação com o LLM Wiki Template?" [ref=e266] [cursor=pointer]
+    - generic [ref=e268]:
+      - heading "Veja sua wiki pensar" [level=2] [ref=e269]
+      - paragraph [ref=e270]: Instale o plugin e aperte Flow.
+      - generic [ref=e271]:
+        - link "Baixar a última release" [ref=e272] [cursor=pointer]:
+          - /url: https://github.com/jonyfs/llm-wiki-brain/releases/latest
+        - link "Ver no GitHub" [ref=e273] [cursor=pointer]:
+          - /url: https://github.com/jonyfs/llm-wiki-brain
+  - contentinfo [ref=e274]:
+    - generic [ref=e275]:
+      - generic [ref=e276]: LLM Wiki Brain · licença MIT
+      - list [ref=e277]:
+        - listitem [ref=e278]:
+          - link "GitHub" [ref=e279] [cursor=pointer]:
+            - /url: https://github.com/jonyfs/llm-wiki-brain
+        - listitem [ref=e280]:
+          - link "Releases" [ref=e281] [cursor=pointer]:
+            - /url: https://github.com/jonyfs/llm-wiki-brain/releases
+        - listitem [ref=e282]:
+          - link "Histórico de versões" [ref=e283] [cursor=pointer]:
+            - /url: changelog.html
+        - listitem [ref=e284]:
+          - link "Issues" [ref=e285] [cursor=pointer]:
+            - /url: https://github.com/jonyfs/llm-wiki-brain/issues
+        - listitem [ref=e286]:
+          - link "README" [ref=e287] [cursor=pointer]:
+            - /url: https://github.com/jonyfs/llm-wiki-brain/blob/main/README.md
+        - listitem [ref=e288]:
+          - link "Roteiro" [ref=e289] [cursor=pointer]:
+            - /url: https://github.com/jonyfs/llm-wiki-brain/blob/main/TODOS.md
+        - listitem [ref=e290]:
+          - link "LLM Wiki Template" [ref=e291] [cursor=pointer]:
+            - /url: https://jonyfs.github.io/llm-wiki-template/
