@@ -14,6 +14,7 @@ import { colorCats, sizeFactors, ColorMode, SizeMode } from "./cats";
 import { ago } from "./time";
 import { toCanvas } from "./canvasExport";
 import { isPanelShortcut } from "./keys";
+import { createIdleTimer, IdleTimer } from "./idle";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
 
@@ -79,6 +80,10 @@ export class BrainView extends ItemView {
 	private search!: HTMLInputElement;
 	private searchRow!: HTMLElement;
 	private searchOpen = false;
+	private searchBtn!: HTMLButtonElement;
+	private searchPill!: HTMLElement;
+	private searchPillText!: HTMLElement;
+	private searchIdle!: IdleTimer;
 	private toolsRow!: HTMLElement;
 	private chipsRow!: HTMLElement;
 	private results!: HTMLElement;
@@ -421,7 +426,8 @@ export class BrainView extends ItemView {
 			update();
 			return b;
 		};
-		add("search", "search.aria", "search.aria", () => this.toggleSearch(), () => this.searchOpen);
+		this.searchBtn = add("search", "search.aria", "search.aria", () => this.toggleSearch(), () => this.searchOpen);
+		this.searchBtn.createSpan({ cls: "llm-wiki-brain-badge", attr: { "aria-hidden": "true" } }); // a dot: the collapsed search still filters
 		add("shuffle", "filters.invert", "filters.invert", () => { this.filters.invert = !this.filters.invert; this.applyFilters(); }, () => this.filters.invert);
 		add("ghost", "filters.orphansOnly", "filters.orphansOnly", () => { this.filters.orphansOnly = !this.filters.orphansOnly; this.applyFilters(); }, () => this.filters.orphansOnly);
 		add("clock", "filters.recent", "filters.recent", () => { const v = !this.plugin.settings.recentRing; this.engine?.setRecent(v); void this.plugin.persist({ recentRing: v }); this.syncControls(false); }, () => this.plugin.settings.recentRing);
@@ -432,14 +438,45 @@ export class BrainView extends ItemView {
 		this.filterBtn.setAttribute("aria-controls", "llm-wiki-brain-panel");
 	}
 	private toggleSearch(): void {
-		this.searchOpen = !this.searchOpen;
-		this.search.focus();
-		this.syncControls(false);
+		if (this.searchOpen) this.collapseSearch();
+		else this.openSearch();
 	}
-	private closeSearch(): void {
+
+	/** The search box opens on demand and folds away again after 10 s without use; the query keeps filtering. */
+	private openSearch(): void {
+		this.searchOpen = true;
+		this.syncSearchUI();
+		this.search.focus();
+		this.search.select();
+		if (this.search.value.trim()) this.renderResults();
+		this.searchIdle.poke();
+	}
+
+	private collapseSearch(): void {
 		if (!this.searchOpen) return;
+		const hadFocus = this.searchRow.contains(document.activeElement);
 		this.searchOpen = false;
-		this.syncControls(false);
+		this.searchIdle.stop();
+		this.results.hide();
+		this.syncSearchUI();
+		if (hadFocus) this.searchBtn.focus(); // keyboard users keep their place
+	}
+
+	/** Collapsed search: row hidden, a pill and a dot say what it still filters; the overlay vanishes when nothing is left in it. */
+	private syncSearchUI(): void {
+		if (!this.searchRow || !this.searchPill || !this.panel || !this.chipsRow) return;
+		const q = this.search.value.trim();
+		this.searchRow.toggleClass("is-collapsed", !this.searchOpen);
+		this.searchBtn?.setAttribute("aria-pressed", String(this.searchOpen));
+		this.searchBtn?.toggleClass("has-filter", !!q);
+		const label = q ? this.t("search.active", { q, n: this.hits.length }) : this.t("search.aria");
+		this.searchBtn?.setAttribute("aria-label", label);
+		this.searchBtn?.setAttribute("title", label);
+		const showPill = !this.searchOpen && !!q;
+		this.searchPill.toggleClass("is-visible", showPill);
+		if (showPill) this.searchPillText.setText(this.t("search.active", { q: q.length > 24 ? q.slice(0, 23) + "…" : q, n: this.hits.length }));
+		const idle = !this.searchOpen && !q && this.currentChips().length === 0 && !this.panel.hasClass("is-open");
+		this.overlay.toggleClass("is-idle", idle);
 	}
 
 	private buildSearchRow(root: HTMLElement): void {
@@ -459,9 +496,30 @@ export class BrainView extends ItemView {
 			else if (e.key === "Enter" && this.hits.length && this.hitAt >= 0) this.stepHit(1);
 			else if (e.key === "Enter") { this.applySearch(true); }
 			if (e.key === "Escape") {
-				this.search.value = "";
-				this.applySearch(false);
+				if (!this.search.value) this.collapseSearch(); // second Esc: fold the box away
+				else {
+					this.search.value = "";
+					this.applySearch(false);
+				}
 			}
+		});
+		this.searchIdle = createIdleTimer(10000, () => this.collapseSearch());
+		const keepOpen = () => { if (this.searchOpen) this.searchIdle.poke(); };
+		for (const type of ["pointerdown", "keydown", "focusin", "input"]) root.addEventListener(type, keepOpen); // the overlay: row, results, buttons
+		row.addClass("is-collapsed");
+		// What the collapsed search still filters, one click from reopening or clearing.
+		this.searchPill = root.createDiv({ cls: "llm-wiki-brain-searchpill" });
+		const pillOpen = this.searchPill.createEl("button", { cls: "llm-wiki-brain-searchpill-open" });
+		const pillIcon = pillOpen.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+		setIcon(pillIcon, "search");
+		this.searchPillText = pillOpen.createSpan({ cls: "llm-wiki-brain-searchpill-text" });
+		pillOpen.addEventListener("click", () => this.openSearch());
+		const pillClear = this.searchPill.createEl("button", { cls: "llm-wiki-brain-searchpill-x", attr: { "aria-label": this.t("search.clear"), title: this.t("search.clear") } });
+		const pillX = pillClear.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+		setIcon(pillX, "x");
+		pillClear.addEventListener("click", () => {
+			this.search.value = "";
+			this.applySearch(false);
 		});
 		const small = (icon: string | null, label: string, aria: string, fn: () => void) => {
 			const b = row.createEl("button", { attr: { "aria-label": aria, title: aria } });
@@ -733,6 +791,7 @@ export class BrainView extends ItemView {
 		this.filterBtn?.setAttribute("aria-expanded", "false");
 		this.filterBtn?.setAttribute("aria-pressed", "false");
 		if (restoreFocus) this.filterBtn?.focus();
+		this.syncSearchUI();
 	}
 
 	private togglePanel(): void {
@@ -740,6 +799,7 @@ export class BrainView extends ItemView {
 		this.panel.toggleClass("is-open", open);
 		this.filterBtn?.setAttribute("aria-expanded", String(open));
 		this.filterBtn?.setAttribute("aria-pressed", String(open));
+		this.syncSearchUI(); // the panel lives in the overlay: keep it on screen while open
 		if (open) {
 			// Move focus into the panel; Esc or the close button brings it back to the Filters button.
 			const first = this.panel.querySelector("button, select, input, [href]") as HTMLElement | null;
@@ -871,6 +931,7 @@ export class BrainView extends ItemView {
 		for (const t of TYPES) this.engine?.setHidden(t, f.hidden.includes(t));
 		this.syncChips();
 		this.filterIconsMap.forEach(({ btn, on }) => btn.setAttribute("aria-pressed", String(on())));
+		this.syncSearchUI();
 		if (apply) {
 			this.applyFilters();
 			this.applySearch(false);
@@ -932,8 +993,7 @@ export class BrainView extends ItemView {
 	}
 
 	focusSearch(): void {
-		this.search?.focus();
-		this.search?.select();
+		this.openSearch();
 	}
 
 	private openNote(path: string, split = false): void {
@@ -1136,6 +1196,7 @@ export class BrainView extends ItemView {
 	private syncClear(): void {
 		if (!this.clearBtn) return;
 		this.clearBtn.disabled = this.currentChips().length === 0 && !this.search.value.trim();
+		this.syncSearchUI();
 	}
 
 	private applyColorSize(): void {
@@ -1189,7 +1250,8 @@ export class BrainView extends ItemView {
 		this.engine.setMatch(hits);
 		this.hits = Array.from(hits).sort();
 		this.hitAt = -1;
-		this.renderResults();
+		if (this.searchOpen) this.renderResults();
+		this.syncSearchUI();
 		if (this.hideNonMatches) this.applyFilters();
 		if (ask) {
 			const hist = [q, ...this.plugin.settings.history.filter((x) => x !== q)].slice(0, 12);
