@@ -59,7 +59,7 @@ test("hebb makes an inhibitory synapse more inhibitory, within the cap", () => {
 	assert.equal(n.out[0][0].w, -n.o.wMax);
 });
 
-test("myelin grows with hub-to-hub traffic and conduction is saltatory", () => {
+test("myelin grows with hub-to-hub traffic and conduction glides saltatorily", () => {
 	const links = [];
 	for (let i = 1; i <= 8; i++) links.push([i, 0], [9, i], [0, 10 + i]);
 	links.push([9, 0]);
@@ -68,7 +68,8 @@ test("myelin grows with hub-to-hub traffic and conduction is saltatory", () => {
 	assert.ok(myelinOf(n, hub) > myelinOf(n, leaf));
 	assert.equal(conduction(0, 0.3), 1);
 	assert.ok(conduction(1, 0.05) > 1); // a fast stretch
-	assert.ok(conduction(1, 0.15) < 1); // a node of Ranvier: brief pause
+	assert.ok(conduction(1, 0.15) < 1); // between nodes of Ranvier: slower, but never a stop
+	assert.ok(conduction(1, 0.15) > 0);
 	assert.ok(conduction(1, 0.05) > conduction(0.3, 0.05));
 });
 
