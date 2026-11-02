@@ -41,6 +41,9 @@ export class ItemView {
 	}
 	async setState(): Promise<void> {}
 	registerEvent(): void {}
+	registerDomEvent<K extends keyof DocumentEventMap>(el: Document | HTMLElement | Window, type: K | string, fn: (ev: any) => void): void {
+		el.addEventListener(type as string, fn as EventListener);
+	}
 	registerInterval(id: number): number {
 		return id;
 	}

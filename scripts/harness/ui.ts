@@ -10,7 +10,7 @@ const view = new BrainView({} as never, plugin as never);
 (view as unknown as { app: unknown }).app = app;
 const pane = document.getElementById("pane") as HTMLElement;
 pane.appendChild(view.contentEl);
-view.contentEl.style.cssText = "flex:1;display:flex;flex-direction:column;min-height:0;padding:0";
+view.contentEl.style.cssText = "flex:1;display:flex;flex-direction:row;min-height:0;padding:0";
 void view.onOpen().then(() => {
 	(window as unknown as Record<string, unknown>).view = view;
 	(window as unknown as Record<string, unknown>).engine = view.engine;
