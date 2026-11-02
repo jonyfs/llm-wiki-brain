@@ -805,17 +805,6 @@
 	margin-left: auto;
 	display: none;
 }
-@container (max-width: 640px) {
-	.llm-wiki-brain-more {
-		display: inline-flex;
-	}
-	.llm-wiki-brain-tools {
-		display: none;
-	}
-	.llm-wiki-brain-tools.is-open {
-		display: flex;
-	}
-}
 .llm-wiki-brain-active {
 	display: flex;
 	flex-wrap: wrap;
@@ -1243,28 +1232,6 @@
 }
 
 /* Narrow panes (a side pane, a phone): the type chips take the top line, the toolbar becomes a popover opened with the dots button, and the search column moves below. */
-@container (max-width: 640px) {
-	.llm-wiki-brain-bar {
-		right: var(--size-4-2);
-		padding-right: 0;
-	}
-	.llm-wiki-brain-tools {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-		padding: 4px;
-		background: var(--background-secondary);
-		border: 1px solid var(--background-modifier-border);
-		border-radius: var(--radius-m);
-	}
-	.llm-wiki-brain-tools.is-open {
-		display: flex;
-	}
-	.llm-wiki-brain-stack {
-		top: 68px;
-		max-height: calc(100% - 108px);
-	}
-}
 
 /* Touch target improvements for all interactive elements */
 @media (pointer: coarse) {
@@ -1897,4 +1864,101 @@
 }
 .llm-wiki-brain-drawer-tabs .llm-wiki-brain-drawer-x {
 	margin-left: auto;
+}
+
+/* Targets: 32 px with a mouse, 44 px on touch, everywhere (the small active-filter chips keep 24, the WCAG floor). */
+.llm-wiki-brain button:not(.llm-wiki-brain-achip):not(.llm-wiki-brain-qclear):not(.llm-wiki-brain-card-x),
+.llm-wiki-brain select {
+	min-height: 32px;
+}
+@media (pointer: coarse) {
+	.llm-wiki-brain button:not(.llm-wiki-brain-achip),
+	.llm-wiki-brain select {
+		min-height: 44px;
+	}
+}
+
+/* A pane under 640 px: the rail becomes a top bar (Search and Filters keep their labels), the rest unfolds under "more",
+   and the floating search and filter panel become a sheet at the bottom. */
+.llm-wiki-brain-more {
+	display: none;
+}
+@container (max-width: 640px) {
+	.llm-wiki-brain-rail,
+	.llm-wiki-brain-rail.is-collapsed,
+	.llm-wiki-brain-rail.is-expanded {
+		width: 100%;
+		max-width: none;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--size-4-1);
+		padding: var(--size-4-1) var(--size-4-2);
+		border-right: 0;
+		border-bottom: 1px solid var(--background-modifier-border);
+		overflow: visible;
+		flex: 0 0 auto;
+	}
+	.llm-wiki-brain-rail .llm-wiki-brain-rgroup,
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-rgroup + .llm-wiki-brain-rgroup {
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.llm-wiki-brain-rail .llm-wiki-brain-rh,
+	.llm-wiki-brain-rail .llm-wiki-brain-rail-head {
+		display: none;
+	}
+	.llm-wiki-brain-rail .llm-wiki-brain-filtericons {
+		flex-direction: row;
+	}
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-filtericons .llm-wiki-brain-ficon .llm-wiki-brain-btn-label {
+		display: inline; /* in the top bar these two say what they are */
+	}
+	.llm-wiki-brain-rail .llm-wiki-brain-bar,
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-bar {
+		flex-direction: row;
+	}
+	.llm-wiki-brain-rail .llm-wiki-brain-bar .llm-wiki-brain-chip {
+		width: auto;
+		flex-direction: row;
+	}
+	.llm-wiki-brain-rail:not(.is-more) .llm-wiki-brain-rgroup:nth-of-type(n + 3) {
+		display: none; /* quick views and tools wait behind "more" */
+	}
+	.llm-wiki-brain-rail.is-more .llm-wiki-brain-rgroup:nth-of-type(n + 3) {
+		flex: 1 1 100%;
+	}
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-presets,
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-tools,
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-filtericons {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-presets .llm-wiki-brain-btn-label,
+	.llm-wiki-brain-rail.is-collapsed .llm-wiki-brain-tools .llm-wiki-brain-btn-label {
+		display: inline;
+	}
+	.llm-wiki-brain-more {
+		display: inline-flex;
+		margin-left: auto;
+	}
+	.llm-wiki-brain-overlay {
+		left: var(--size-4-2);
+		right: var(--size-4-2);
+		top: auto;
+		bottom: 38px;
+		width: auto;
+		max-height: 58%;
+	}
+	.llm-wiki-brain-alert {
+		left: var(--size-4-2);
+	}
+}
+
+.llm-wiki-brain.is-narrow {
+	flex-direction: column;
 }

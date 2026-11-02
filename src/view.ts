@@ -286,10 +286,15 @@ export class BrainView extends ItemView {
 		this.toolsRow = this.railGroup("rail.tools").createDiv({ cls: "llm-wiki-brain-tools" });
 		this.buildTools();
 		// Mobile tools toggle: on narrow screens, tools are hidden behind a "more" button.
-		const moreBtn = this.rail.createEl("button", { cls: "llm-wiki-brain-more", attr: { "aria-label": this.t("btn.more"), title: this.t("btn.more") } });
+		const moreBtn = this.rail.createEl("button", { cls: "llm-wiki-brain-more", attr: { "aria-label": this.t("btn.more"), title: this.t("btn.more"), "aria-expanded": "false" } });
 		const moreIc = moreBtn.createSpan({ cls: "llm-wiki-brain-btn-icon" });
 		setIcon(moreIc, "more-horizontal");
-		moreBtn.addEventListener("click", (e) => { e.stopPropagation(); this.toolsRow.toggleClass("is-open", !this.toolsRow.hasClass("is-open")); });
+		moreBtn.addEventListener("click", (e) => {
+			e.stopPropagation();
+			const open = !this.rail.hasClass("is-more");
+			this.rail.toggleClass("is-more", open); // in a narrow pane the quick views and tools unfold under the top bar
+			moreBtn.setAttribute("aria-expanded", String(open));
+		});
 		// Narrow panes fold the rail to icons on their own; a wide pane goes back to the choice made with the toggle.
 		this.narrowObs = new ResizeObserver(() => {
 			const narrow = root.clientWidth > 0 && root.clientWidth < 640;
@@ -889,6 +894,7 @@ export class BrainView extends ItemView {
 	/** Wide: the user's choice, remembered. Narrow: folded to icons, and the toggle only peeks (not remembered). */
 	private syncRail(): void {
 		const collapsed = this.narrow ? !this.railPeek : this.railCollapsed;
+		this.contentEl.toggleClass("is-narrow", this.narrow); // a container query cannot restyle its own container, so the root gets a class
 		this.rail.toggleClass("is-collapsed", collapsed);
 		this.rail.toggleClass("is-expanded", !collapsed);
 		const toggle = this.rail.querySelector(".llm-wiki-brain-rail-toggle") as HTMLElement | null;
