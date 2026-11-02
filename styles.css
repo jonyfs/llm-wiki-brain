@@ -109,8 +109,13 @@
 	background: var(--background-secondary);
 	transition: var(--lwb-dur-fast) var(--lwb-ease-out);
 }
-.llm-wiki-brain-chip[aria-pressed="false"] {
-	opacity: 0.45;
+.llm-wiki-brain-chip[aria-pressed="false"] .llm-wiki-brain-dot {
+	background: transparent !important;
+	box-shadow: inset 0 0 0 2px var(--c, var(--text-muted)); /* off: a hollow dot and a struck-through label, readable without colour or dimming */
+}
+.llm-wiki-brain-chip[aria-pressed="false"] .llm-wiki-brain-chip-label {
+	text-decoration: line-through;
+	text-decoration-thickness: 1px;
 }
 .llm-wiki-brain-chip:hover {
 	background: var(--background-modifier-hover);
@@ -1740,4 +1745,69 @@
 	align-items: center;
 	gap: 4px;
 	color: var(--text-muted);
+}
+
+/* A pressed button says so with a dot as well as a fill, so it does not rest on colour alone. */
+.llm-wiki-brain-rail.is-expanded button[aria-pressed="true"]:not(.llm-wiki-brain-chip)::after {
+	content: "";
+	width: 6px;
+	height: 6px;
+	margin-left: auto;
+	border-radius: 50%;
+	background: currentColor;
+	flex-shrink: 0;
+}
+/* Search: a hint under the box, a strip saying what the filters do, an empty state with a way out, and failures in words. */
+.llm-wiki-brain-searchhint {
+	padding: 0 2px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.llm-wiki-brain-searchhint.is-collapsed,
+.llm-wiki-brain-strip.is-hidden,
+.llm-wiki-brain-nomatch.is-hidden,
+.llm-wiki-brain-alert.is-hidden,
+.llm-wiki-brain-alert button.is-hidden {
+	display: none;
+}
+.llm-wiki-brain-strip {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding: 2px 4px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.llm-wiki-brain-nomatch {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-2);
+	text-align: center;
+	pointer-events: none;
+}
+.llm-wiki-brain-nomatch button {
+	pointer-events: auto;
+}
+.llm-wiki-brain-alert {
+	position: absolute;
+	left: var(--lwb-rail, 52px);
+	right: var(--size-4-2);
+	bottom: 38px;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-4);
+	background: var(--background-secondary);
+	border: 1px solid var(--text-warning, var(--background-modifier-border));
+	border-radius: var(--radius-m);
+	font-size: var(--font-ui-small);
+}
+.llm-wiki-brain-alert span {
+	flex: 1 1 auto;
 }

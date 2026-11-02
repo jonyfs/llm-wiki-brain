@@ -93,6 +93,13 @@ export class BrainView extends ItemView {
 	private searchPill!: HTMLElement;
 	private searchPillText!: HTMLElement;
 	private searchIdle!: IdleTimer;
+	private searchHint!: HTMLElement;
+	private strip!: HTMLElement; // what the filters are doing, in words, with a way out
+	private stripText!: HTMLElement;
+	private noMatch!: HTMLElement;
+	private alertBox!: HTMLElement;
+	private alertText!: HTMLElement;
+	private alertRetry!: HTMLButtonElement;
 	private toolsRow!: HTMLElement;
 	private chipsRow!: HTMLElement;
 	private results!: HTMLElement;
@@ -232,11 +239,11 @@ export class BrainView extends ItemView {
 		});
 
 		// Empty state: shown when the vault has no pages / no visible nodes.
-		this.empty = root.createDiv({ cls: "llm-wiki-brain-empty", attr: { "aria-hidden": "true" } });
+		this.empty = root.createDiv({ cls: "llm-wiki-brain-empty", attr: { role: "status" } });
 		this.empty.hide();
 
 		// Loading skeleton: shown while the graph builds.
-		this.loading = root.createDiv({ cls: "llm-wiki-brain-loading", attr: { "aria-hidden": "true" } });
+		this.loading = root.createDiv({ cls: "llm-wiki-brain-loading", attr: { role: "status", "aria-label": this.t("status.loading") } });
 		this.loading.hide();
 		const skeleton = (label: string) => this.loading.createDiv({ cls: "llm-wiki-brain-skeleton block", attr: { "aria-label": label } });
 		skeleton(this.t("status.summary"));
@@ -289,6 +296,9 @@ export class BrainView extends ItemView {
 		this.overlay = root.createDiv({ cls: "llm-wiki-brain-overlay" });
 		this.buildSearchRow(this.overlay);
 		this.chipsRow = this.overlay.createDiv({ cls: "llm-wiki-brain-active" });
+		this.strip = this.overlay.createDiv({ cls: "llm-wiki-brain-strip is-hidden", attr: { role: "status" } });
+		this.stripText = this.strip.createSpan();
+		this.strip.createEl("button", { text: this.t("filters.clear") }).addEventListener("click", () => this.clearAll());
 		this.results = this.overlay.createDiv({ cls: "llm-wiki-brain-results", attr: { "aria-live": "polite", role: "status" } });
 		this.results.hide();
 		this.buildPanel(this.overlay);
@@ -342,6 +352,7 @@ export class BrainView extends ItemView {
 
 		this.stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
 		this.canvas = this.stage.createEl("canvas", { attr: { id: "llm-wiki-brain-canvas", tabindex: "0", role: "application", "aria-label": this.t("canvas.aria"), "aria-keyshortcuts": "ArrowUp ArrowDown ArrowLeft ArrowRight Enter Escape F Shift+F 0 1 2 3" } });
+		this.noMatch = this.stage.createDiv({ cls: "llm-wiki-brain-nomatch is-hidden", attr: { role: "status" } });
 		this.legend = this.stage.createDiv({ cls: "llm-wiki-brain-legend" });
 		this.tooltip = this.stage.createDiv({ cls: "llm-wiki-brain-tooltip", attr: { role: "tooltip", id: "llm-wiki-brain-tooltip" } });
 		this.tooltip.hide();
@@ -360,6 +371,10 @@ export class BrainView extends ItemView {
 		this.info.hide();
 		this.lintBox = root.createDiv({ cls: "llm-wiki-brain-lint" });
 		this.lintBox.hide();
+		this.alertBox = root.createDiv({ cls: "llm-wiki-brain-alert is-hidden", attr: { role: "alert" } });
+		this.alertText = this.alertBox.createSpan();
+		this.alertRetry = this.alertBox.createEl("button", { text: this.t("alert.retry") });
+		this.alertBox.createEl("button", { text: "×", attr: { "aria-label": this.t("keys.close") } }).addEventListener("click", () => this.alertBox.addClass("is-hidden"));
 		const foot = root.createDiv({ cls: "llm-wiki-brain-foot" });
 		this.status = foot.createSpan({ cls: "llm-wiki-brain-status", attr: { "aria-live": "polite" } });
 		this.perfEl = foot.createSpan({ cls: "llm-wiki-brain-perf" });
@@ -478,6 +493,7 @@ export class BrainView extends ItemView {
 		if (!this.searchRow || !this.searchPill || !this.panel || !this.chipsRow) return;
 		const q = this.search.value.trim();
 		this.searchRow.toggleClass("is-collapsed", !this.searchOpen);
+		this.searchHint?.toggleClass("is-collapsed", !this.searchOpen);
 		this.searchBtn?.setAttribute("aria-pressed", String(this.searchOpen));
 		this.searchBtn?.toggleClass("has-filter", !!q);
 		const label = q ? this.t("search.active", { q, n: this.hits.length }) : this.t("search.aria");
@@ -503,12 +519,19 @@ export class BrainView extends ItemView {
 			timer = window.setTimeout(() => this.applySearch(false), 160);
 		});
 		this.search.addEventListener("keydown", (e) => {
-			if (e.key === "Enter" && e.shiftKey) this.stepHit(-1);
-			else if (e.key === "Enter" && this.hits.length && this.hitAt >= 0) this.stepHit(1);
-			else if (e.key === "Enter") { this.applySearch(true); }
-			if (e.key === "Escape") {
-				if (!this.search.value) this.collapseSearch(); // second Esc: fold the box away
+			if (e.key === "Enter") { // one rule per key: Enter next, Shift+Enter previous, Ctrl/Cmd+Enter asks the brain
+				e.preventDefault();
+				if (e.ctrlKey || e.metaKey) this.applySearch(true);
 				else {
+					if (!this.hits.length) this.applySearch(false);
+					if (this.hits.length) this.stepHit(e.shiftKey ? -1 : 1);
+				}
+			}
+			if (e.key === "Escape") {
+				if (!this.search.value) {
+					this.collapseSearch(); // second Esc: fold the box away and hand the keys back to the graph
+					this.canvas?.focus();
+				} else {
 					this.search.value = "";
 					this.applySearch(false);
 				}
@@ -541,10 +564,16 @@ export class BrainView extends ItemView {
 			return b;
 		};
 		this.clearBtn = small("x", "", this.t("filters.clear"), () => this.clearAll()); // right after the search box: clears the filters and the search
-		small("help-circle", "?", this.t("search.help"), () => this.flip(this.helpCard));
 		small("chevron-left", "", this.t("search.prev.aria"), () => this.stepHit(-1));
 		small("chevron-right", "", this.t("search.next.aria"), () => this.stepHit(1));
-		small(null, this.t("search.copy"), this.t("search.copy.title"), () => this.copyHits());
+		const more = small("more-horizontal", "", this.t("search.menu"), () => {});
+		more.addEventListener("click", (e) => {
+			const m = new Menu();
+			m.addItem((i) => i.setTitle(this.t("search.copy.title")).setIcon("copy").onClick(() => this.copyHits()));
+			m.addItem((i) => i.setTitle(this.t("search.help.title")).setIcon("help-circle").onClick(() => this.flip(this.helpCard)));
+			m.showAtMouseEvent(e);
+		});
+		this.searchHint = root.createDiv({ cls: "llm-wiki-brain-searchhint is-collapsed", text: this.t("search.hint") });
 	}
 
 	private flip(el: HTMLElement): void {
@@ -972,8 +1001,8 @@ export class BrainView extends ItemView {
 
 
 	/** Clear every filter, the isolated neighbourhood or selection, and the search. */
-	clearAll(): void {
-		if (this.currentChips().length || this.search.value.trim() || this.neighborhood || this.isolate) {
+	clearAll(confirm = true): void {
+		if (confirm && this.currentChips().length || this.search.value.trim() || this.neighborhood || this.isolate) {
 			if (!window.confirm(this.t("filters.clearConfirm"))) return;
 		}
 		this.filters = { ...DEFAULT_FILTERS, hidden: [] };
@@ -1174,6 +1203,30 @@ export class BrainView extends ItemView {
 		return activeChips({ ...this.filters, hidden: this.filters.hidden }, this.neighborhood, this.extraQuery, this.isolate?.size ?? 0);
 	}
 
+	/** A failure, in words, with its cause and a way to try again: it stays until it is dismissed or the retry works. */
+	private showAlert(key: StringKey, vars: Vars | undefined, retry?: () => void): void {
+		this.alertText.setText(this.t(key, vars));
+		this.alertRetry.toggleClass("is-hidden", !retry);
+		this.alertRetry.onclick = retry ? () => { this.alertBox.addClass("is-hidden"); retry(); } : null;
+		this.alertBox.removeClass("is-hidden");
+	}
+
+	/** What the filters are doing: "12 of 214 pages, 3 filters", and a clear message when nothing matches. */
+	private syncStrip(count: number): void {
+		const s = this.engine?.stats();
+		if (!s) return;
+		const active = count > 0 || !!this.search.value.trim() || !!this.neighborhood || !!this.isolate;
+		this.strip.toggleClass("is-hidden", !active);
+		if (active) this.stripText.setText(this.t("filters.strip", { visible: s.visible, total: s.nodes, n: count }));
+		const none = active && s.nodes > 0 && s.visible === 0;
+		this.noMatch.toggleClass("is-hidden", !none);
+		if (none) {
+			this.noMatch.empty();
+			this.noMatch.createEl("strong", { text: this.t("filters.none", { n: count }) });
+			this.noMatch.createEl("button", { text: this.t("filters.clear") }).addEventListener("click", () => this.clearAll(false));
+		}
+	}
+
 	/** One removable chip per filter that is on, under the search box. */
 	private renderChips(): void {
 		const list = this.currentChips();
@@ -1183,6 +1236,7 @@ export class BrainView extends ItemView {
 		else this.filterBtn?.setText(label);
 		this.chipsRow.empty();
 		this.chipsRow.toggleClass("is-empty", list.length === 0);
+		this.syncStrip(list.length);
 		this.refreshPresetState();
 		const chipIcons: Record<string, string> = {
 			folder: "folder",
@@ -1598,8 +1652,9 @@ export class BrainView extends ItemView {
 			const path = `brain-${this.stamp()}.png`;
 			await this.app.vault.createBinary(path, await blob.arrayBuffer());
 			new Notice(this.t("export.saved", { path }));
-		} catch {
-			new Notice(this.t("export.failed"));
+		} catch (err) {
+			this.showAlert("export.failed", undefined, () => void this.exportPng());
+			console.error("llm-wiki-brain: export failed", err);
 		}
 	}
 
@@ -1618,7 +1673,13 @@ export class BrainView extends ItemView {
 	/** Lint overlay: orphans, broken links and pages without a type, with a clickable list. */
 	runLint(): void {
 		if (!this.engine) return;
-		this.graph = buildVaultGraph(this.app, this.plugin.settings);
+		try {
+			this.graph = buildVaultGraph(this.app, this.plugin.settings);
+		} catch (err) {
+			this.showAlert("lint.failed", undefined, () => this.runLint());
+			console.error("llm-wiki-brain: lint failed", err);
+			return;
+		}
 		const g = this.graph;
 		this.engine.flag(Array.from(new Set([...g.orphans, ...g.broken, ...g.untyped])));
 		this.lintBox.empty();
