@@ -74,7 +74,9 @@ export function createDemo(lang: Lang = "en") {
 		t: (k: StringKey, v?: Record<string, string | number>) => translate(lang, k, v),
 		readLog: async () => log,
 		saveLayout: () => {},
-		persist: async () => {},
+		persist: async (patch: Record<string, unknown>) => {
+			Object.assign(settings, patch); // like the real plugin: small state is kept
+		},
 		saveViews: async () => {},
 	};
 

@@ -8,6 +8,31 @@ export interface SavedView {
 
 export const MAX_VIEWS = 20;
 
+/** How the view was left: reopened as it was, so a working cut of the vault does not have to be rebuilt every day. */
+export interface LastView {
+	filters: Record<string, unknown>;
+	q: string;
+	extra: string;
+	hide: boolean;
+	color: string;
+	size: string;
+}
+
+/** Whatever was stored, as a LastView or null. Text is capped; anything that is not the right shape is dropped. */
+export function cleanLastView(raw: unknown): LastView | null {
+	if (!raw || typeof raw !== "object") return null;
+	const v = raw as Partial<LastView>;
+	if (!v.filters || typeof v.filters !== "object" || Array.isArray(v.filters)) return null;
+	return {
+		filters: { ...(v.filters as Record<string, unknown>) },
+		q: typeof v.q === "string" ? v.q.slice(0, 300) : "",
+		extra: typeof v.extra === "string" ? v.extra.slice(0, 300) : "",
+		hide: v.hide === true,
+		color: typeof v.color === "string" ? v.color : "type",
+		size: typeof v.size === "string" ? v.size : "same",
+	};
+}
+
 /** Whatever was stored, as a clean list: objects with a name, filters as an object, at most MAX_VIEWS, no repeated names. */
 export function cleanViews(raw: unknown): SavedView[] {
 	if (!Array.isArray(raw)) return [];

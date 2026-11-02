@@ -8,7 +8,7 @@ import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 import { logOn, logOps, pagesByOp, parseLog, LogEntry } from "./logParser";
 import { suggest, toWikiLinks } from "./query";
 import { attend } from "./attention";
-import { removeView, saveView } from "./views";
+import { LastView, removeView, saveView } from "./views";
 import { activeChips, withoutChip, Chip } from "./chips";
 import { colorCats, sizeFactors, ColorMode, SizeMode } from "./cats";
 import { ago } from "./time";
@@ -73,6 +73,8 @@ export class BrainView extends ItemView {
 	private colorMode: ColorMode = "type";
 	private sizeMode: SizeMode = "same";
 	private pending: ViewState | null = null;
+	private restoring = true; // no saving while the view is still being put back
+	private lastTimer = 0;
 	private inDeg = new Map<string, number>();
 	private outDeg = new Map<string, number>();
 	// elements
@@ -413,8 +415,10 @@ export class BrainView extends ItemView {
 		this.engine.setGhosts(s.ghosts);
 		this.engine.setRecent(s.recentRing);
 		this.registerInterval(window.setInterval(() => this.updatePerf(), 1000));
+		if (!this.pending && s.lastView) this.restoreLast(s.lastView); // opened fresh (not restored by the workspace): come back as it was left
 		this.syncControls(false);
 		await this.refresh();
+		this.restoring = false;
 		if (!s.onboarded) this.showWizard(this.stage);
 	}
 
@@ -1121,6 +1125,24 @@ export class BrainView extends ItemView {
 	}
 
 	/** Camera and selection saved with the view, applied once the graph is there. */
+	/** The state that the next fresh view starts from. Saved a moment after the last change. */
+	private saveLast(): void {
+		if (this.restoring) return;
+		window.clearTimeout(this.lastTimer);
+		this.lastTimer = window.setTimeout(() => {
+			void this.plugin.persist({ lastView: { filters: { ...this.filters }, q: this.search?.value ?? "", extra: this.extraQuery, hide: this.hideNonMatches, color: this.colorMode, size: this.sizeMode } });
+		}, 800);
+	}
+
+	private restoreLast(v: LastView): void {
+		this.filters = { ...DEFAULT_FILTERS, ...(v.filters as Partial<Filters>), hidden: Array.isArray(v.filters.hidden) ? (v.filters.hidden as PageType[]) : [] };
+		this.extraQuery = v.extra;
+		this.hideNonMatches = v.hide;
+		this.colorMode = (["type", "folder", "tag", "age", "degree"] as ColorMode[]).includes(v.color as ColorMode) ? (v.color as ColorMode) : "type";
+		this.sizeMode = (["same", "degree", "recent"] as SizeMode[]).includes(v.size as SizeMode) ? (v.size as SizeMode) : "same";
+		this.search.value = v.q;
+	}
+
 	private restorePending(): void {
 		const p = this.pending;
 		if (!p || !this.engine) return;
@@ -1197,6 +1219,7 @@ export class BrainView extends ItemView {
 		this.updateStatus();
 		this.renderChips();
 		this.syncClear();
+		this.saveLast();
 	}
 
 	private currentChips(): Chip[] {
@@ -1286,6 +1309,7 @@ export class BrainView extends ItemView {
 
 	private applyColorSize(): void {
 		if (!this.engine || !this.graph) return;
+		this.saveLast();
 		const g = this.graph;
 		const pages = g.pages.map((p) => ({ path: p.path, folder: g.meta.get(p.path)?.folder ?? "", tags: g.meta.get(p.path)?.tags ?? [], mtime: p.mtime, deg: (this.inDeg.get(p.path) ?? 0) + (this.outDeg.get(p.path) ?? 0) }));
 		const cats = colorCats(this.colorMode, pages);
@@ -1323,6 +1347,7 @@ export class BrainView extends ItemView {
 		if (!this.engine || !this.graph) return;
 		const q = this.search.value.trim();
 		this.syncClear();
+		this.saveLast();
 		if (!q) {
 			this.engine.setMatch(null);
 			this.hits = [];
