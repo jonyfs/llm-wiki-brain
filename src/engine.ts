@@ -6,7 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
+import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
 import { quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
@@ -96,6 +96,8 @@ interface Cell {
 	sz: number; // size multiplier (the size-by option)
 	deg: number;
 	adj: number[];
+	sc: number; // screen pixels per world unit at this cell's depth
+	ashape: AxonShape | null; // the axon in the cell's own 3D frame
 	axonSeq: number; // the draw that axonG was computed for
 	axonG: AxonGeom | null;
 	pulse: number;
@@ -292,6 +294,8 @@ export class BrainEngine {
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private ebend = new Float64Array(0); // per link: the screen offset of its 3D bulge
+	private rotFn = (v: number[]): [number, number] => this.rotv(v);
 	private somaStops: Partial<Record<PageType, string[]>> = {};
 	private somaGrad: Partial<Record<PageType, CanvasGradient>> = {}; // in unit space: one gradient per type, moved and scaled with the transform
 	private boutonColor = "rgb(230,255,251)";
@@ -399,7 +403,7 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], axonSeq: -1, axonG: null,
+				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], sc: 1, ashape: null, axonSeq: -1, axonG: null,
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -1119,7 +1123,10 @@ export class BrainEngine {
 			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
 			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
 		}, (ei, id) => this.edges[ei][0] === id && !this.mutual[ei]); // a one-way link leaves through the axon of the page that holds it
-		for (const n of this.nodes) if (!n.axon || !n.axon.length) n.axon = freeDirection(n.den);
+		for (const n of this.nodes) {
+			if (!n.axon || !n.axon.length) n.axon = freeDirection(n.den);
+			n.ashape = axonShape(n.axon, n.id);
+		}
 		this.portsDirty = false;
 	}
 
@@ -1134,13 +1141,8 @@ export class BrainEngine {
 	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
 	private anchorOf(n: Cell, di: number, out: Float64Array, o: number): void {
 		if (di < 0) {
-			const tip = this.axonGeom(n)?.tips[-1 - di];
-			if (tip) {
-				out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
-				return;
-			}
-			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy) || 1; // axon foreshortened: leave from the soma edge
-			out[o] = n.px + (vx / l) * n.pr * 0.9; out[o + 1] = n.py + (vy / l) * n.pr * 0.9; out[o + 2] = vx / l; out[o + 3] = vy / l;
+			const tip = this.axonGeom(n).tips[-1 - di] ?? this.axonGeom(n).tips[0];
+			out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
 			return;
 		}
 		const d = n.den[di];
@@ -1163,6 +1165,16 @@ export class BrainEngine {
 		const e = this.edges[i];
 		this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 		this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+		this.bendOf(i);
+	}
+
+	/** Where link `i` bulges on screen, from a 3D normal to its chord that turns with the brain (see edgeBend). */
+	private bendOf(i: number): void {
+		if (this.ebend.length < this.edges.length * 2) this.ebend = new Float64Array(this.edges.length * 2);
+		const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
+		const [bx, by] = edgeBend(b.x - a.x, b.y - a.y, b.z - a.z, phiOf(i), e[2], this.rotFn, (a.sc + b.sc) / 2);
+		this.ebend[i * 2] = bx;
+		this.ebend[i * 2 + 1] = by;
 	}
 
 	private computeAnchors(): void {
@@ -1171,13 +1183,14 @@ export class BrainEngine {
 			const e = this.edges[i];
 			this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 			this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+			this.bendOf(i);
 		}
 	}
 
 	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
 	private ePts(ei: number, fwd: boolean): number[] {
 		if (this.simpleEdges) this.anchorEdge(ei);
-		return edgeCurve(this.anc, ei * 8, fwd, this.edges[ei][2]);
+		return edgeCurve(this.anc, ei * 8, fwd, this.ebend[ei * 2], this.ebend[ei * 2 + 1]);
 	}
 
 	/** A point along a link, soma to dendrite, then the process, then the other dendrite to its soma. */
@@ -1729,6 +1742,7 @@ export class BrainEngine {
 			n.px = cx + x1 * p * this.S0;
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
+			n.sc = p * this.S0;
 			if (drift) { // a cell is never perfectly still: a slow, render-only sway (picking and links follow it)
 				const ph = n.id * 2.399963, w = this.tNow * 0.0007;
 				n.px += (Math.sin(w + ph) + 0.5 * Math.sin(w * 1.7 + ph * 2)) * 1.1 * this.dpr;
@@ -2252,32 +2266,43 @@ export class BrainEngine {
 
 	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
 	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
-	private axonGeom(n: Cell): AxonGeom | null {
-		if (n.axonSeq === this.drawSeq) return n.axonG; // asked once per draw: the links and the neuron share it
+	private axonGeom(n: Cell): AxonGeom {
+		if (n.axonSeq === this.drawSeq && n.axonG) return n.axonG; // asked once per draw: the links and the neuron share it
 		n.axonSeq = this.drawSeq;
-		n.axonG = this.computeAxon(n);
-		return n.axonG;
+		const g = this.computeAxon(n);
+		n.axonG = g;
+		return g;
 	}
 
-	private computeAxon(n: Cell): AxonGeom | null {
-		const R = n.pr, [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
-		if (l < 0.12) return null; // only when it points straight at (or away from) the viewer
-		const ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
-		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
-		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
-		const t = 0.72, u = 1 - t, bx = u * u * hx + 2 * u * t * cx + t * t * ex, by = u * u * hy + 2 * u * t * cy + t * t * ey;
-		const tips: number[][] = [[ex, ey, ux, uy]];
-		for (const sd of [-1, 1]) {
-			const tx = bx + ux * R * 1.2 + qx * R * 1.1 * sd, ty = by + uy * R * 1.2 + qy * R * 1.1 * sd, dx = tx - bx, dy = ty - by, dl = Math.hypot(dx, dy) || 1;
-			tips.push([tx, ty, dx / dl, dy / dl]);
+	/** The axon, projected: its 3D points (in soma radii around the centre) go through the same rotation as the dendrites, so it turns with the brain. */
+	private computeAxon(n: Cell): AxonGeom {
+		const R = n.pr, sh = n.ashape ?? (n.ashape = axonShape(n.axon, n.id));
+		const pj = (v: number[]): [number, number] => {
+			const [rx, ry] = this.rotv(v);
+			return [n.px + rx * R, n.py + ry * R];
+		};
+		const [hx, hy] = pj(sh.h), [cx, cy] = pj(sh.c), [ex, ey] = pj(sh.e), [bx, by] = pj(sh.b);
+		let ux = ex - hx, uy = ey - hy, L = Math.hypot(ux, uy);
+		if (L < 1e-3) { // pointing straight at the viewer: the trunk is a dot; keep a direction for the cone
+			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
+			ux = l > 1e-3 ? vx / l : 1;
+			uy = l > 1e-3 ? vy / l : 0;
+			L = 0;
+		} else {
+			ux /= L;
+			uy /= L;
 		}
-		return { hx, hy, ux, uy, qx, qy, L, cx, cy, bx, by, tips };
+		const tips: number[][] = [];
+		for (let i = 0; i < sh.tips.length; i++) {
+			const [tx, ty] = pj(sh.tips[i]), [dx, dy] = this.rotv(sh.dirs[i]), dl = Math.hypot(dx, dy);
+			tips.push([tx, ty, dl > 1e-3 ? dx / dl : ux, dl > 1e-3 ? dy / dl : uy]);
+		}
+		return { hx, hy, ux, uy, qx: -uy, qy: ux, L, cx, cy, bx, by, tips };
 	}
 
 	private drawAxon(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr, R = n.pr;
 		const g = this.axonGeom(n);
-		if (!g) return;
 		const { hx, hy, ux, uy, qx, qy, cx, cy, bx, by, tips } = g;
 		const col = this.mutedRGB[n.vt] ?? "255,255,255";
 		ctx.fillStyle = "rgba(" + col + "," + al * 0.45 + ")"; // hillock
@@ -2294,10 +2319,10 @@ export class BrainEngine {
 		ctx.moveTo(hx, hy);
 		ctx.quadraticCurveTo(cx, cy, tips[0][0], tips[0][1]);
 		const ends: number[] = [tips[0][0], tips[0][1]];
-		for (const [i, sd] of [[1, -1], [2, 1]]) {
+		for (let i = 1; i < tips.length; i++) {
 			const [tx, ty] = tips[i];
 			ctx.moveTo(bx, by);
-			ctx.quadraticCurveTo(bx + ux * R * 0.5 + qx * R * 0.2 * sd, by + uy * R * 0.5 + qy * R * 0.2 * sd, tx, ty);
+			ctx.quadraticCurveTo((bx + tx) / 2 + ux * R * 0.3, (by + ty) / 2 + uy * R * 0.3, tx, ty);
 			ends.push(tx, ty);
 		}
 		ctx.stroke();

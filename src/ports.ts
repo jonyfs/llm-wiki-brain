@@ -69,12 +69,18 @@ export function assignPorts(nodes: PortNode[], edges: PortEdge[], grow: (n: Port
 			const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
 			return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
 		});
-		let outN = 0;
+		const tipDirs = axonTipDirs(n.axon ?? [0, 1, 0], n.id), tipLoad = new Array<number>(AXON_TIPS).fill(0);
 		for (const ei of inc[n.id]) {
-			if (isOut?.(ei, n.id)) {
-				const tip = -1 - (outN++ % AXON_TIPS);
-				if (edges[ei][0] === n.id) edges[ei][4] = tip;
-				else edges[ei][5] = tip;
+			if (isOut?.(ei, n.id)) { // each terminal of the axon serves the page it points toward
+				const o = nodes[edges[ei][0] === n.id ? edges[ei][1] : edges[ei][0]], dx = o.x - n.x, dy = o.y - n.y, dz = o.z - n.z, dl = Math.hypot(dx, dy, dz) || 1;
+				let bt = 0, bts = -1e9;
+				for (let t = 0; t < AXON_TIPS; t++) {
+					const sc = (tipDirs[t][0] * dx + tipDirs[t][1] * dy + tipDirs[t][2] * dz) / dl - 0.3 * tipLoad[t];
+					if (sc > bts) { bts = sc; bt = t; }
+				}
+				tipLoad[bt]++;
+				if (edges[ei][0] === n.id) edges[ei][4] = -1 - bt;
+				else edges[ei][5] = -1 - bt;
 				continue;
 			}
 			const e = edges[ei], other = nodes[e[0] === n.id ? e[1] : e[0]];
@@ -98,16 +104,86 @@ export function assignPorts(nodes: PortNode[], edges: PortEdge[], grow: (n: Port
 /**
  * The link as a cubic. `A` holds, per edge, [x, y, outX, outY] of the dendrite tip at each end (8 numbers from `o`).
  * It leaves each tip along its branch (long when the branch points at the other cell, short when it points away,
- * so the link turns early instead of looping), then bends by `bend`. Returns x0, y0, c1x, c1y, c2x, c2y, x1, y1.
+ * so the link turns early instead of looping), then bends by (bx, by): the screen projection of the link's 3D bulge
+ * (see `edgeBend`), so the same curve is drawn whichever end it is traversed from. Returns x0, y0, c1x, c1y, c2x, c2y, x1, y1.
  */
-export function edgeCurve(A: ArrayLike<number>, o: number, fwd: boolean, bend: number): number[] {
+export function edgeCurve(A: ArrayLike<number>, o: number, fwd: boolean, bx: number, by: number): number[] {
 	const a = fwd ? o : o + 4, b = fwd ? o + 4 : o;
 	const x0 = A[a], y0 = A[a + 1], x1 = A[b], y1 = A[b + 1];
-	const L = Math.hypot(x1 - x0, y1 - y0) || 1, k = (fwd ? 1 : -1) * bend * L * 0.9;
-	const ux = (x1 - x0) / L, uy = (y1 - y0) / L, px = -uy, py = ux;
+	const L = Math.hypot(x1 - x0, y1 - y0) || 1;
+	const ux = (x1 - x0) / L, uy = (y1 - y0) / L;
 	const ta = L * (0.08 + 0.34 * clamp(A[a + 2] * ux + A[a + 3] * uy, 0, 1));
 	const tb = L * (0.08 + 0.34 * clamp(-(A[b + 2] * ux + A[b + 3] * uy), 0, 1));
-	return [x0, y0, x0 + A[a + 2] * ta + px * k, y0 + A[a + 3] * ta + py * k, x1 + A[b + 2] * tb + px * k, y1 + A[b + 3] * tb + py * k, x1, y1];
+	return [x0, y0, x0 + A[a + 2] * ta + bx, y0 + A[a + 3] * ta + by, x1 + A[b + 2] * tb + bx, y1 + A[b + 3] * tb + by, x1, y1];
+}
+
+/** A stable pseudo-random angle in [0, 2π) from an integer: which way around the chord a link bulges, or around the axis an axon leans. */
+export function phiOf(i: number, salt = 0): number {
+	return (((Math.imul(i + 1, 2654435761) ^ Math.imul(salt + 7, 1597334677)) >>> 0) / 4294967296) * 2 * Math.PI;
+}
+
+/** A unit vector perpendicular to the unit vector `a`, turned by `phi` around it. Deterministic; uses world up as the reference unless `a` is nearly vertical. */
+export function perpendicular(a: ArrayLike<number>, phi: number): [number, number, number] {
+	const hx = Math.abs(a[1]) > 0.9 ? 1 : 0, hy = hx ? 0 : 1;
+	let ux = -a[2] * hy, uy = a[2] * hx, uz = a[0] * hy - a[1] * hx;
+	const ul = Math.hypot(ux, uy, uz) || 1;
+	ux /= ul; uy /= ul; uz /= ul;
+	const vx = a[1] * uz - a[2] * uy, vy = a[2] * ux - a[0] * uz, vz = a[0] * uy - a[1] * ux; // a × u
+	const c = Math.cos(phi), s = Math.sin(phi);
+	return [c * ux + s * vx, c * uy + s * vy, c * uz + s * vz];
+}
+
+/**
+ * Where a link bulges, on screen. The bulge is a 3D vector perpendicular to the chord (`dx, dy, dz` in world units) of
+ * length `bend` times the chord, pointing around the chord by `phi`; `rot` projects a direction (the camera rotation, no
+ * perspective) and `scale` is screen pixels per world unit. A bulge pointing at the viewer vanishes, one across the view
+ * shows in full: the link turns with the brain instead of staying on one side of the screen chord.
+ */
+export function edgeBend(dx: number, dy: number, dz: number, phi: number, bend: number, rot: (v: number[]) => [number, number], scale: number): [number, number] {
+	const L = Math.hypot(dx, dy, dz);
+	if (L < 1e-9) return [0, 0];
+	const n = perpendicular([dx / L, dy / L, dz / L], phi), [rx, ry] = rot(n), m = clamp(Math.abs(bend) * 0.9, 0, 0.45) * L * scale;
+	return [rx * m, ry * m];
+}
+
+/* ---- the axon, in the cell's own 3D frame (units of the soma radius) ---- */
+
+const norm3 = (x: number, y: number, z: number): [number, number, number] => {
+	const l = Math.hypot(x, y, z) || 1;
+	return [x / l, y / l, z / l];
+};
+
+/** The directions of the AXON_TIPS terminals: straight on, and two leaning to either side around the axis. */
+export function axonTipDirs(axon: ArrayLike<number>, id: number): [number, number, number][] {
+	const p = perpendicular(axon, phiOf(id, 3));
+	return [
+		[axon[0], axon[1], axon[2]],
+		norm3(axon[0] * 0.8 + p[0] * 0.7, axon[1] * 0.8 + p[1] * 0.7, axon[2] * 0.8 + p[2] * 0.7),
+		norm3(axon[0] * 0.8 - p[0] * 0.7, axon[1] * 0.8 - p[1] * 0.7, axon[2] * 0.8 - p[2] * 0.7),
+	];
+}
+
+export interface AxonShape {
+	h: number[]; // hillock: where the cone ends and the trunk starts
+	c: number[]; // control point of the trunk's quadratic
+	e: number[]; // end of the trunk (the straight-on terminal)
+	b: number[]; // where the side branches leave the trunk
+	tips: number[][]; // terminal positions: end, then the two side ones
+	dirs: number[][]; // the way each terminal points
+}
+
+/** The axon as 3D points around the soma centre, in soma radii: hillock, a trunk that leans a little to one side, three terminals. */
+export function axonShape(axon: ArrayLike<number>, id: number): AxonShape {
+	const a = [axon[0], axon[1], axon[2]], p = perpendicular(a, phiOf(id, 3));
+	const h = a.map((v) => v * 1.7), e = a.map((v) => v * 6), c = a.map((v, i) => v * 3.85 + p[i] * 0.9);
+	const t = 0.72, u = 1 - t, b = a.map((_, i) => u * u * h[i] + 2 * u * t * c[i] + t * t * e[i]);
+	const side = (sd: number) => b.map((v, i) => v + a[i] * 1.2 + p[i] * 1.1 * sd);
+	const t1 = side(1), t2 = side(-1);
+	const end = norm3(e[0] - c[0], e[1] - c[1], e[2] - c[2]);
+	return {
+		h, c, e, b, tips: [e, t1, t2],
+		dirs: [[end[0], end[1], end[2]], norm3(t1[0] - b[0], t1[1] - b[1], t1[2] - b[2]), norm3(t2[0] - b[0], t2[1] - b[1], t2[2] - b[2])],
+	};
 }
 
 /**
