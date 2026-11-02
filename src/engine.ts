@@ -6,6 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
+import { hashStr, makeDrift, rng } from "./rand";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
 import { quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
@@ -96,6 +97,10 @@ interface Cell {
 	sz: number; // size multiplier (the size-by option)
 	deg: number;
 	adj: number[];
+	rx: number; // where the cell is drawn in the world: its place plus the drift
+	ry: number;
+	rz: number;
+	drift: Float64Array; // amplitude, three speeds, three phases: from the page path
 	sc: number; // screen pixels per world unit at this cell's depth
 	ashape: AxonShape | null; // the axon in the cell's own 3D frame
 	axonSeq: number; // the draw that axonG was computed for
@@ -164,23 +169,8 @@ const COLORS = {
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
-function hashStr(s: string): number {
-	let h = 2166136261;
-	for (let i = 0; i < s.length; i++) {
-		h ^= s.charCodeAt(i);
-		h = Math.imul(h, 16777619);
-	}
-	return h >>> 0;
-}
 
-function rng(seed: number): () => number {
-	return () => {
-		seed = (seed + 0x6d2b79f5) | 0;
-		let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
+
 
 function hexToRgb(h: string): number[] {
 	return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -328,7 +318,6 @@ export class BrainEngine {
 	private fast = 0;
 	private frames = 0;
 	private frameMs = 0;
-	private lowDetail = false;
 	private reportDrawFailure = once((m) => this.opts.onStatus(m));
 	private portsDirty = true;
 	private anc = new Float64Array(0);
@@ -403,7 +392,7 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], sc: 1, ashape: null, axonSeq: -1, axonG: null,
+				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], rx: 0, ry: 0, rz: 0, drift: makeDrift(p.path), sc: 1, ashape: null, axonSeq: -1, axonG: null,
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
@@ -1135,7 +1124,7 @@ export class BrainEngine {
 	}
 
 	private denVisible(n: Cell): boolean {
-		return !this.lowDetail && n.pr > 2.2 * this.dpr;
+		return this.quality > 0 && this.fullFlags[n.id] === 1 && n.pr > 2.2 * this.dpr;
 	}
 
 	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
@@ -1172,7 +1161,7 @@ export class BrainEngine {
 	private bendOf(i: number): void {
 		if (this.ebend.length < this.edges.length * 2) this.ebend = new Float64Array(this.edges.length * 2);
 		const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
-		const [bx, by] = edgeBend(b.x - a.x, b.y - a.y, b.z - a.z, phiOf(i), e[2], this.rotFn, (a.sc + b.sc) / 2);
+		const [bx, by] = edgeBend(b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, phiOf(i), e[2], this.rotFn, (a.sc + b.sc) / 2);
 		this.ebend[i * 2] = bx;
 		this.ebend[i * 2 + 1] = by;
 	}
@@ -1728,7 +1717,7 @@ export class BrainEngine {
 
 	/** Idle sway only for modest graphs, and never with reduced motion. */
 	private drifting(): boolean {
-		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 600;
+		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 2500;
 	}
 
 	private project(): void {
@@ -1738,16 +1727,19 @@ export class BrainEngine {
 		const drift = this.drifting();
 		const cx = this.W / 2 + this.panX, cyy = this.H / 2 + this.panY, rk = this.S0 * Math.pow(this.zoom, -0.35) * 0.62;
 		for (const n of this.nodes) {
-			const x1 = n.x * cy + n.z * sy, z1 = -n.x * sy + n.z * cy, y1 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp, p = DIST / (DIST + z2);
+			let wx = n.x, wy = n.y, wz = n.z;
+			if (drift) { // a slow 3D drift in the world, a few units, its own rhythm per cell: render-only (physics, saved layout and ports never see it)
+				const d = n.drift, t = this.tNow;
+				wx += d[0] * Math.sin(d[1] * t + d[4]);
+				wy += d[0] * Math.sin(d[2] * t + d[5]);
+				wz += d[0] * Math.sin(d[3] * t + d[6]);
+			}
+			n.rx = wx; n.ry = wy; n.rz = wz;
+			const x1 = wx * cy + wz * sy, z1 = -wx * sy + wz * cy, y1 = wy * cp - z1 * sp, z2 = wy * sp + z1 * cp, p = DIST / (DIST + z2);
 			n.px = cx + x1 * p * this.S0;
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
 			n.sc = p * this.S0;
-			if (drift) { // a cell is never perfectly still: a slow, render-only sway (picking and links follow it)
-				const ph = n.id * 2.399963, w = this.tNow * 0.0007;
-				n.px += (Math.sin(w + ph) + 0.5 * Math.sin(w * 1.7 + ph * 2)) * 1.1 * this.dpr;
-				n.py += (Math.cos(w * 0.9 + ph * 1.3) + 0.5 * Math.sin(w * 1.3 + ph)) * 1.1 * this.dpr;
-			}
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
 			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.ps * 3.2) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
 		}
@@ -1912,8 +1904,23 @@ export class BrainEngine {
 		this.drawSeq++;
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
-		this.lowDetail = nodes.length > 600 || this.quality === 0;
 		this.simpleEdges = this.edges.length > 3500;
+		const order = this.order;
+		order.sort((p, q) => q.pz - p.pz); // far to near; the sort is adaptive, so a barely changed order costs about one pass
+		// Full neurons are costly (a polygon, a gradient, branches): only the biggest on screen get one, the rest are sprites.
+		// Detail follows the size on screen, not the size of the vault: the biggest cells get dendrites and an axon, however many pages there are.
+		const budget = this.quality > 1 ? 350 : this.quality === 1 ? 140 : 0;
+		if (this.fullFlags.length !== nodes.length) this.fullFlags = new Uint8Array(nodes.length);
+		const full = this.fullFlags; // 1 = gets a full neuron this frame (ties in pr must not defeat the budget); reused, no per-frame allocation
+		full.fill(0);
+		if (order.length > budget) {
+			const on = this.candBuf;
+			on.length = 0;
+			for (const n of order) if (!n.off && n.pr > 4.5 * dpr) on.push(n);
+			if (on.length > budget) on.sort((p, q) => q.pr - p.pr);
+			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
+		} else for (const n of order) full[n.id] = 1;
+
 		if (!this.simpleEdges) this.computeAnchors();
 		if (this.ghost) {
 			ctx.globalAlpha = this.ghostAlpha;
@@ -1972,21 +1979,7 @@ export class BrainEngine {
 			ctx.stroke();
 		}
 		this.drawRoutes();
-		const order = this.order;
-		order.sort((p, q) => q.pz - p.pz); // far to near; the sort is adaptive, so a barely changed order costs about one pass
-		const m = 70 * dpr, warn = this.tNow < this.flagUntil, lowDetail = this.lowDetail;
-		// Full neurons are costly (a polygon, a gradient, branches): only the biggest on screen get one, the rest are sprites.
-		const budget = this.quality > 1 ? 350 : this.quality === 1 ? 140 : 0;
-		if (this.fullFlags.length !== nodes.length) this.fullFlags = new Uint8Array(nodes.length);
-		const full = this.fullFlags; // 1 = gets a full neuron this frame (ties in pr must not defeat the budget); reused, no per-frame allocation
-		full.fill(0);
-		if (order.length > budget) {
-			const on = this.candBuf;
-			on.length = 0;
-			for (const n of order) if (!n.off && n.pr > 4.5 * dpr) on.push(n);
-			if (on.length > budget) on.sort((p, q) => q.pr - p.pr);
-			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
-		} else for (const n of order) full[n.id] = 1;
+		const m = 70 * dpr, warn = this.tNow < this.flagUntil;
 		let rings = 400; // pulse rings are a stroke each: a vault that just loaded must not draw ten thousand
 		if (this.ghosts && this.anyFiltered) { // where the filtered-out pages are: faint dots
 			ctx.globalAlpha = 0.2;
@@ -2005,8 +1998,8 @@ export class BrainEngine {
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
 			const al = clamp((1 - n.pd * 0.62) * (dim ? 0.16 : 1), 0.05, 1), size = n.pr * 4.55;
 			ctx.globalAlpha = 1;
-			const axonFront = this.rotz(n.axon) < 0, axonOn = !lowDetail && this.quality > 1 && n.pr > 6 * dpr;
-			if (!lowDetail) this.drawDendrites(n, al * 0.65, false);
+			const axonFront = this.rotz(n.axon) < 0, axonOn = full[n.id] === 1 && this.quality > 1 && n.pr > 6 * dpr;
+			this.drawDendrites(n, al * 0.65, false);
 			if (axonOn && !axonFront) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
 			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
@@ -2019,7 +2012,7 @@ export class BrainEngine {
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
 			}
 			ctx.globalAlpha = 1;
-			if (!lowDetail) this.drawDendrites(n, al * 0.65, true);
+			this.drawDendrites(n, al * 0.65, true);
 			if (axonOn && axonFront) this.drawAxon(n, al);
 			const charge = this.net && this.quality > 0 ? this.net.charge(n.id) : 0;
 			if (charge > 0.04 && n.pr > 3 * dpr) { // membrane potential: the arc closes as the cell nears its threshold
