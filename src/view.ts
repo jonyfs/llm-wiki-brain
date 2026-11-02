@@ -51,6 +51,15 @@ interface ViewState {
 
 const stem = (p: string) => p.split("/").pop()?.replace(/\.md$/, "") ?? p;
 
+/** setIcon with fallbacks: the first name Obsidian's icon set actually draws wins (a missing name leaves the element empty). */
+function setIconSafe(el: HTMLElement, names: string[]): void {
+	for (const name of names) {
+		el.empty();
+		setIcon(el, name);
+		if (el.querySelector("svg") || el.querySelector("[class^='obsidian-icon-']")) return;
+	}
+}
+
 export class BrainView extends ItemView {
 	engine: BrainEngine | null = null;
 	hoverPopover: HoverPopover | null = null;
@@ -138,6 +147,9 @@ export class BrainView extends ItemView {
 	private replaySpeed = 1;
 	private replayLoop = false;
 	private railCollapsed!: boolean;
+	private narrow = false; // the pane is narrower than 640 px: the rail folds itself
+	private railPeek = false; // ...and the toggle only peeks
+	private narrowObs: ResizeObserver | null = null;
 	private logEntries: LogEntry[] = [];
 	private vocab = { tags: [] as string[], folders: [] as string[], types: [...TYPES] as string[] };
 	private afterRefresh: (() => void)[] = [];
@@ -232,19 +244,17 @@ export class BrainView extends ItemView {
 
 		const s = this.plugin.settings;
 
-		// Collapsible rail on the left: holds the type chips, the toolbar and the search/filter stack.
-		// Collapsed, it shrinks to an icon strip so the canvas keeps the space.
-		// Fixed icon-only rail: never expands. Search/filters live in a floating overlay.
-		// Collapsible rail: expanded shows labels + tools; collapsed shrinks to an icon strip.
-		this.railCollapsed = true;
-		this.rail = root.createDiv({ cls: "llm-wiki-brain-rail is-collapsed" });
-
-		const bar = this.rail.createDiv({ cls: "llm-wiki-brain-bar" });
-		// Rail expand/collapse toggle (always visible, even when collapsed).
-		const toggle = bar.createEl("button", { cls: "llm-wiki-brain-rail-toggle", attr: { "aria-pressed": "true", "aria-label": this.t("rails.collapse"), title: this.t("rails.collapse") } });
+		// The rail: expanded by default (every control carries its label), in named groups, and it remembers how you left it.
+		this.railCollapsed = s.railCollapsed;
+		this.rail = root.createDiv({ cls: "llm-wiki-brain-rail " + (this.railCollapsed ? "is-collapsed" : "is-expanded") });
+		const head = this.rail.createDiv({ cls: "llm-wiki-brain-rail-head" });
+		const toggle = head.createEl("button", { cls: "llm-wiki-brain-rail-toggle" });
 		const tIcon = toggle.createSpan({ cls: "llm-wiki-brain-btn-icon" });
-		setIcon(tIcon, "chevron-right");
+		setIconSafe(tIcon, ["panel-left-close", "chevron-left"]);
 		toggle.addEventListener("click", () => this.toggleRail());
+		// Search and Filters: what people reach for first. buildFilterIcons() fills this once the panel exists.
+		this.filterIcons = this.rail.createDiv({ cls: "llm-wiki-brain-filtericons llm-wiki-brain-rgroup" });
+		const bar = this.railGroup("rail.types").createDiv({ cls: "llm-wiki-brain-bar" });
 		const typeIcons: Record<PageType, string> = { source: "file-text", entity: "square-user", concept: "lightbulb", synthesis: "sparkles" };
 		for (const t of TYPES) {
 			const chip = bar.createEl("button", { cls: "llm-wiki-brain-chip", attr: { "aria-pressed": "true", "data-type": t, "aria-label": this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }), title: this.t("chip.aria", { type: this.t(("type." + t) as StringKey) }) } });
@@ -256,17 +266,25 @@ export class BrainView extends ItemView {
 			chip.addEventListener("click", () => this.toggleType(t));
 			this.chips.set(t, chip);
 		}
-
-		this.toolsRow = this.rail.createDiv({ cls: "llm-wiki-brain-tools" });
+		this.buildPresets(this.railGroup("rail.views").createDiv({ cls: "llm-wiki-brain-presets" }));
+		this.toolsRow = this.railGroup("rail.tools").createDiv({ cls: "llm-wiki-brain-tools" });
 		this.buildTools();
 		// Mobile tools toggle: on narrow screens, tools are hidden behind a "more" button.
 		const moreBtn = this.rail.createEl("button", { cls: "llm-wiki-brain-more", attr: { "aria-label": this.t("btn.more"), title: this.t("btn.more") } });
 		const moreIc = moreBtn.createSpan({ cls: "llm-wiki-brain-btn-icon" });
 		setIcon(moreIc, "more-horizontal");
 		moreBtn.addEventListener("click", (e) => { e.stopPropagation(); this.toolsRow.toggleClass("is-open", !this.toolsRow.hasClass("is-open")); });
-		// Filter icons live in the rail next to the type chips, so a filter is one click away without opening the panel.
-		// The div is created here, but buildFilterIcons() runs after buildPanel() because the "Filtros" icon depends on this.panel.
-		this.filterIcons = this.rail.createDiv({ cls: "llm-wiki-brain-filtericons" });
+		// Narrow panes fold the rail to icons on their own; a wide pane goes back to the choice made with the toggle.
+		this.narrowObs = new ResizeObserver(() => {
+			const narrow = root.clientWidth > 0 && root.clientWidth < 640;
+			if (narrow !== this.narrow) {
+				this.narrow = narrow;
+				this.railPeek = false;
+				this.syncRail();
+			}
+		});
+		this.narrowObs.observe(root);
+		this.syncRail();
 
 		this.overlay = root.createDiv({ cls: "llm-wiki-brain-overlay" });
 		this.buildSearchRow(this.overlay);
@@ -293,6 +311,33 @@ export class BrainView extends ItemView {
 			else if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); this.scrub.stepUp(); updateScrub(); }
 		});
 		this.replayCaption = this.replayBar.createSpan({ cls: "llm-wiki-brain-replaycap", attr: { "aria-live": "polite" } });
+		// The replay settings live with the replay: its own bar, labelled, reachable by Tab.
+		const opts = this.replayBar.createDiv({ cls: "llm-wiki-brain-replayopts" });
+		const modeSel = opts.createEl("select", { attr: { "aria-label": this.t("replay.mode.aria"), title: this.t("replay.mode.aria") } });
+		modeSel.createEl("option", { value: "ctime", text: this.t("replay.mode.created") });
+		modeSel.createEl("option", { value: "mtime", text: this.t("replay.mode.edited") });
+		modeSel.addEventListener("change", () => {
+			this.replayKey = modeSel.value as "ctime" | "mtime";
+			this.restartReplay();
+		});
+		const speedSel = opts.createEl("select", { attr: { "aria-label": this.t("replay.speed.aria"), title: this.t("replay.speed.aria") } });
+		for (const v of ["0.5", "1", "2", "4"]) speedSel.createEl("option", { value: v, text: v + "×" });
+		speedSel.value = "1";
+		speedSel.addEventListener("change", () => {
+			this.replaySpeed = Number(speedSel.value);
+			this.engine?.setReplaySpeed(this.replaySpeed);
+		});
+		const fromLabel = opts.createEl("label", { cls: "llm-wiki-brain-replayfrom" });
+		fromLabel.createSpan({ text: this.t("replay.from") });
+		const fromIn = fromLabel.createEl("input", { type: "date", attr: { "aria-label": this.t("replay.from") } });
+		fromIn.addEventListener("change", () => {
+			this.replayFrom = fromIn.value ? Date.parse(fromIn.value + "T00:00:00Z") : 0;
+			this.restartReplay();
+		});
+		const loopLabel = opts.createEl("label", { cls: "llm-wiki-brain-replayloop" });
+		const loopIn = loopLabel.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop" } });
+		loopLabel.createSpan({ text: this.t("replay.loop") });
+		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
 		this.replayBar.hide();
 
 		this.stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
@@ -362,54 +407,26 @@ export class BrainView extends ItemView {
 
 	private buildTools(): void {
 		const tools = this.toolsRow;
-		const btn = (icon: string, label: string, title: string, fn: () => void) => {
+		const btn = (icons: string[], label: string, title: string, fn: () => void) => {
 			const b = tools.createEl("button", { attr: { "aria-label": title, title } });
 			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
-			setIcon(ic, icon);
+			setIconSafe(ic, icons);
 			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
 			b.addEventListener("click", fn);
 			return b;
 		};
-		btn("workflow", this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
-		this.replayBtn = btn("history", this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
-		const modeSel = tools.createEl("select", { attr: { "aria-label": this.t("replay.mode.aria"), title: this.t("replay.mode.aria") } });
-		modeSel.createEl("option", { value: "ctime", text: this.t("replay.mode.created") });
-		modeSel.createEl("option", { value: "mtime", text: this.t("replay.mode.edited") });
-		modeSel.addEventListener("change", () => (this.replayKey = modeSel.value as "ctime" | "mtime"));
-		const speedSel = tools.createEl("select", { attr: { "aria-label": this.t("replay.speed.aria"), title: this.t("replay.speed.aria") } });
-		for (const v of ["0.5", "1", "2", "4"]) speedSel.createEl("option", { value: v, text: v + "×" });
-		speedSel.value = "1";
-		speedSel.addEventListener("change", () => {
-			this.replaySpeed = Number(speedSel.value);
-			this.engine?.setReplaySpeed(this.replaySpeed);
-		});
-		// Date field as a popup picker triggered by an icon button, so it aligns with the other icon buttons in the rail.
-		const fromBtn = tools.createEl("button", { attr: { "aria-label": this.t("replay.from"), title: this.t("replay.from") } });
-		const fromIcon = fromBtn.createSpan({ cls: "llm-wiki-brain-btn-icon" });
-		setIcon(fromIcon, "calendar");
-		fromBtn.createSpan({ cls: "llm-wiki-brain-btn-label", text: this.t("replay.from") });
-		const fromIn = tools.createEl("input", { type: "date", attr: { "aria-label": this.t("replay.from"), title: this.t("replay.from") } });
-		fromIn.style.position = "absolute";
-		fromIn.style.opacity = "0";
-		fromIn.style.pointerEvents = "none";
-		fromIn.style.width = "0";
-		fromIn.style.height = "0";
-		fromIn.addEventListener("change", () => (this.replayFrom = fromIn.value ? Date.parse(fromIn.value + "T00:00:00Z") : 0));
-		fromBtn.addEventListener("click", () => {
-			try { (fromIn as any).showPicker?.(); } catch { fromIn.click(); }
-		});
-		const loopIn = tools.createEl("input", { type: "checkbox", attr: { id: "llm-wiki-brain-loop", "aria-label": this.t("replay.loop"), title: this.t("replay.loop") } });
-		loopIn.addEventListener("change", () => (this.replayLoop = loopIn.checked));
-		btn("bug", this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
-		this.rotateBtn = btn("refresh-cw", this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
+		btn(["workflow"], this.t("btn.flow"), this.t("btn.flow.title"), () => this.playFlow());
+		this.replayBtn = btn(["history"], this.t("btn.replay"), this.t("btn.replay.title"), () => this.toggleReplay());
+		btn(["scan-search", "bug"], this.t("btn.lint"), this.t("btn.lint.title"), () => this.runLint());
+		this.rotateBtn = btn(["rotate-3d", "refresh-cw"], this.t("btn.rotate"), this.t("btn.rotate.title"), () => {
 			const on = !this.engine?.isAuto();
 			this.engine?.setAuto(on);
 			this.rotateBtn.setAttribute("aria-pressed", String(on));
 		});
-		btn("rotate-ccw", this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
-		btn("maximize-2", this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
-		btn("image", this.t("btn.export"), this.t("btn.export.title"), () => void this.exportPng());
-		btn("keyboard", this.t("btn.help"), this.t("btn.help"), () => this.flip(this.keysCard));
+		btn(["rotate-ccw"], this.t("btn.reset"), this.t("btn.reset.title"), () => this.engine?.resetView());
+		btn(["maximize-2"], this.t("btn.full"), this.t("btn.full.title"), () => this.toggleFullscreen());
+		btn(["image"], this.t("btn.export"), this.t("btn.export.title"), () => void this.exportPng());
+		btn(["keyboard"], this.t("btn.help"), this.t("btn.help"), () => this.flip(this.keysCard));
 	}
 
 	/** One icon button per filter, placed in the rail next to the type chips. Each toggles its filter and re-applies. */
@@ -427,12 +444,6 @@ export class BrainView extends ItemView {
 			return b;
 		};
 		this.searchBtn = add("search", "search.aria", "search.aria", () => this.toggleSearch(), () => this.searchOpen);
-		this.searchBtn.createSpan({ cls: "llm-wiki-brain-badge", attr: { "aria-hidden": "true" } }); // a dot: the collapsed search still filters
-		add("shuffle", "filters.invert", "filters.invert", () => { this.filters.invert = !this.filters.invert; this.applyFilters(); }, () => this.filters.invert);
-		add("ghost", "filters.orphansOnly", "filters.orphansOnly", () => { this.filters.orphansOnly = !this.filters.orphansOnly; this.applyFilters(); }, () => this.filters.orphansOnly);
-		add("clock", "filters.recent", "filters.recent", () => { const v = !this.plugin.settings.recentRing; this.engine?.setRecent(v); void this.plugin.persist({ recentRing: v }); this.syncControls(false); }, () => this.plugin.settings.recentRing);
-		add("eye-off", "search.hide", "search.hide", () => { this.hideNonMatches = !this.hideNonMatches; this.applyFilters(); }, () => this.hideNonMatches);
-		add("eye", "filters.ghosts", "filters.ghosts", () => { const v = !this.plugin.settings.ghosts; this.engine?.setGhosts(v); void this.plugin.persist({ ghosts: v }); this.syncControls(false); }, () => this.plugin.settings.ghosts);
 		this.filterBtn = add("filter", "filters.button", "filters.button", () => this.togglePanel(), () => this.panel?.hasClass("is-open") ?? false);
 		this.filterBtn.setAttribute("aria-expanded", "false");
 		this.filterBtn.setAttribute("aria-controls", "llm-wiki-brain-panel");
@@ -593,24 +604,6 @@ export class BrainView extends ItemView {
 		const ic = close.createSpan({ cls: "llm-wiki-brain-btn-icon" });
 		setIcon(ic, "x");
 		close.addEventListener("click", () => this.closePanel());
-		// Quick filter presets: one click replaces the active filter set with a sensible combo.
-		const presets = this.panel.createDiv({ cls: "llm-wiki-brain-presets" });
-		const presetDefs: [FilterPreset, string, string][] = [
-			["orphans", this.t("preset.orphans"), "ghost"],
-			["hubs", this.t("preset.hubs"), "network"],
-			["recent", this.t("preset.recent"), "clock"],
-			["new", this.t("preset.new"), "sparkles"],
-			["sinks", this.t("preset.sinks"), "arrow-down"],
-			["sources", this.t("preset.sources"), "arrow-up"],
-			["invert", this.t("preset.invert"), "shuffle"],
-		];
-		for (const [p, label, icon] of presetDefs) {
-			const b = presets.createEl("button", { attr: { "aria-pressed": "false", title: label } });
-			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
-			setIcon(ic, icon);
-			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
-			b.addEventListener("click", () => this.applyPreset(p));
-		}
 		const clear = this.panel.createEl("button", { cls: "llm-wiki-brain-clear", text: this.t("filters.clear") });
 		clear.addEventListener("click", () => this.clearAll());
 		this.contentEl.addEventListener("keydown", (e) => {
@@ -807,17 +800,53 @@ export class BrainView extends ItemView {
 		}
 	}
 
-	private toggleRail(): void {
-		this.railCollapsed = !this.railCollapsed;
-		this.rail.toggleClass("is-collapsed", this.railCollapsed);
-		this.rail.toggleClass("is-expanded", !this.railCollapsed);
-		const t = this.t(this.railCollapsed ? "rails.expand" : "rails.collapse");
+	private railGroup(key: StringKey): HTMLElement {
+		const g = this.rail.createDiv({ cls: "llm-wiki-brain-rgroup", attr: { role: "group", "aria-label": this.t(key) } });
+		g.createDiv({ cls: "llm-wiki-brain-rh", text: this.t(key), attr: { "aria-hidden": "true" } });
+		return g;
+	}
+
+	/** Wide: the user's choice, remembered. Narrow: folded to icons, and the toggle only peeks (not remembered). */
+	private syncRail(): void {
+		const collapsed = this.narrow ? !this.railPeek : this.railCollapsed;
+		this.rail.toggleClass("is-collapsed", collapsed);
+		this.rail.toggleClass("is-expanded", !collapsed);
 		const toggle = this.rail.querySelector(".llm-wiki-brain-rail-toggle") as HTMLElement | null;
-		toggle?.setAttribute("aria-pressed", String(!this.railCollapsed));
-		toggle?.setAttribute("aria-label", t);
-		toggle?.setAttribute("title", t);
+		const label = this.t(collapsed ? "rails.expand" : "rails.collapse");
+		toggle?.setAttribute("aria-expanded", String(!collapsed));
+		toggle?.setAttribute("aria-label", label);
+		toggle?.setAttribute("title", label);
 		const ic = toggle?.querySelector(".llm-wiki-brain-btn-icon") as HTMLElement | null;
-		if (ic) { ic.empty(); setIcon(ic, this.railCollapsed ? "chevron-right" : "chevron-left"); }
+		if (ic) { ic.empty(); setIconSafe(ic, collapsed ? ["panel-left-open", "chevron-right"] : ["panel-left-close", "chevron-left"]); }		this.contentEl.style.setProperty("--lwb-rail", collapsed ? "52px" : "224px"); // where the floating search and filter panel start
+	}
+
+	private toggleRail(): void {
+		if (this.narrow) this.railPeek = !this.railPeek;
+		else {
+			this.railCollapsed = !this.railCollapsed;
+			void this.plugin.persist({ railCollapsed: this.railCollapsed });
+		}
+		this.syncRail();
+	}
+
+	/** One-click views: each replaces the filter set with a sensible combination. They live in the rail, only here. */
+	private buildPresets(host: HTMLElement): void {
+		const defs: [FilterPreset, string, string][] = [
+			["orphans", this.t("preset.orphans"), "unlink"],
+			["hubs", this.t("preset.hubs"), "network"],
+			["recent", this.t("preset.recent"), "clock"],
+			["new", this.t("preset.new"), "sparkles"],
+			["sinks", this.t("preset.sinks"), "arrow-down"],
+			["sources", this.t("preset.sources"), "arrow-up"],
+			["invert", this.t("preset.invert"), "arrow-left-right"],
+		];
+		for (const [p, label, icon] of defs) {
+			const b = host.createEl("button", { attr: { "aria-pressed": "false", title: label, "aria-label": label } });
+			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
+			setIconSafe(ic, [icon, "filter"]);
+			b.createSpan({ cls: "llm-wiki-brain-btn-label", text: label });
+			b.addEventListener("click", () => this.applyPreset(p));
+		}
 	}
 
 	private fillViews(pick = ""): void {
@@ -897,6 +926,8 @@ export class BrainView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		this.narrowObs?.disconnect();
+		this.narrowObs = null;
 		this.deferred.cancel();
 		this.engine?.destroy();
 		this.engine = null;
@@ -973,7 +1004,7 @@ export class BrainView extends ItemView {
 
 	/** Mark the preset button that matches the current filter set as pressed. */
 	private refreshPresetState(): void {
-		const btns = this.panel?.querySelectorAll?.(".llm-wiki-brain-presets button");
+		const btns = this.rail?.querySelectorAll?.(".llm-wiki-brain-presets button");
 		if (!btns) return;
 		const presets: FilterPreset[] = ["orphans", "hubs", "recent", "new", "sinks", "sources"];
 		btns.forEach((b, i) => {
@@ -1323,6 +1354,13 @@ export class BrainView extends ItemView {
 		const date = new Date(step.time).toISOString().slice(0, 10);
 		const ops = Array.from(new Set(logOn(this.logEntries, step.time).map((e) => e.op))).join(", ");
 		this.replayCaption.setText(ops ? this.t("replay.captionLog", { date, i: step.i, n: step.n, ops }) : this.t("replay.caption", { date, i: step.i, n: step.n }));
+	}
+
+	/** A new mode or start date only means something from the start: run the replay again with it. */
+	private restartReplay(): void {
+		if (!this.engine?.isReplaying()) return;
+		this.engine.stopReplay();
+		this.toggleReplay();
 	}
 
 	private toggleReplay(): void {

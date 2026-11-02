@@ -28,6 +28,7 @@ export interface BrainSettings {
 	ghosts: boolean;
 	recentRing: boolean;
 	history: string[];
+	railCollapsed: boolean; // the rail is expanded (labels) unless the user folded it
 	schema: number;
 }
 
@@ -53,6 +54,7 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	ghosts: true,
 	recentRing: false,
 	history: [],
+	railCollapsed: false,
 	schema: 3,
 };
 
