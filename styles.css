@@ -1583,3 +1583,70 @@
 		transform: none;
 	}
 }
+
+/* Search: an icon in the rail opens it; it folds away after 10 s, leaving a pill and a dot while it still filters. */
+.llm-wiki-brain-search.is-collapsed {
+	display: none;
+}
+.llm-wiki-brain-overlay.is-idle {
+	display: none;
+}
+.llm-wiki-brain-ficon {
+	position: relative;
+}
+.llm-wiki-brain-badge {
+	display: none;
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--color-orange, var(--text-accent));
+	box-shadow: 0 0 0 2px var(--background-secondary);
+}
+.llm-wiki-brain-ficon.has-filter .llm-wiki-brain-badge {
+	display: block;
+}
+.llm-wiki-brain-searchpill {
+	display: none;
+	align-items: center;
+	align-self: flex-start;
+	max-width: 100%;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+}
+.llm-wiki-brain-searchpill.is-visible {
+	display: inline-flex;
+	animation: lwb-search-enter var(--lwb-dur-base) var(--lwb-ease-out);
+}
+.llm-wiki-brain-searchpill button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	background: transparent;
+	color: var(--text-normal);
+	border: 1px solid transparent;
+	box-shadow: none;
+	min-width: 0;
+}
+.llm-wiki-brain-searchpill button:hover {
+	background: var(--background-modifier-hover);
+}
+.llm-wiki-brain-searchpill button:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+.llm-wiki-brain-searchpill-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-ui-smaller);
+}
+@media (prefers-reduced-motion: reduce) {
+	.llm-wiki-brain-searchpill.is-visible {
+		animation: none;
+	}
+}
