@@ -26,6 +26,7 @@
 }
 body { margin: 0; background: var(--background-primary); color: var(--text-normal); font: 13px -apple-system, "Segoe UI", sans-serif; }
 #pane { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+#pane > * { flex: 1 1 auto; min-height: 0; }
 button, select, input { font: inherit; color: var(--text-normal); background: var(--background-modifier-hover); border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 2px 8px; }
 input[type="range"] { padding: 0; }
 input[type="checkbox"] { padding: 0; }
