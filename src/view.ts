@@ -72,6 +72,9 @@ export class BrainView extends ItemView {
 	private hideNonMatches = false;
 	private colorMode: ColorMode = "type";
 	private sizeMode: SizeMode = "same";
+	private root!: HTMLElement;
+	private tourStep = -1;
+	private tourCard: HTMLElement | null = null;
 	private pending: ViewState | null = null;
 	private restoring = true; // no saving while the view is still being put back
 	private lastTimer = 0;
@@ -226,6 +229,7 @@ export class BrainView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		const root = this.contentEl;
+		this.root = root;
 		root.empty();
 		root.addClass("llm-wiki-brain");
 
@@ -419,7 +423,7 @@ export class BrainView extends ItemView {
 		this.syncControls(false);
 		await this.refresh();
 		this.restoring = false;
-		if (!s.onboarded) this.showWizard(this.stage);
+		if (!s.onboarded) this.showTour();
 	}
 
 	/* ---------- Building the controls ---------- */
@@ -924,6 +928,7 @@ export class BrainView extends ItemView {
 		const k = this.keysCard;
 		close(k);
 		k.createEl("strong", { text: this.t("keys.title") });
+		k.createEl("p", { cls: "llm-wiki-brain-card-intro", text: this.t("wizard.1") });
 		const shortcuts: [StringKey, string][] = [
 			["keys.rotate", "Space"],
 			["keys.nav", "Arrow keys"],
@@ -939,23 +944,55 @@ export class BrainView extends ItemView {
 			row.createSpan({ cls: "llm-wiki-brain-key-shortcut", text: shortcut });
 			row.createSpan({ text: this.t(key) });
 		}
+		k.createEl("button", { text: this.t("tour.again") }).addEventListener("click", () => {
+			k.hide();
+			this.showTour();
+		});
 	}
 
 	/** The first time: three lines on what the picture means, once. */
-	private showWizard(host: HTMLElement): void {
-		const card = host.createDiv({ cls: "llm-wiki-brain-wizard", attr: { role: "dialog", "aria-label": this.t("wizard.title") } });
-		card.createEl("strong", { text: this.t("wizard.title") });
-		for (const k of ["wizard.1", "wizard.2", "wizard.3"] as const) card.createEl("p", { text: this.t(k) });
-		const ok = card.createEl("button", { text: this.t("wizard.ok") });
-		ok.addEventListener("click", () => {
-			card.remove();
-			void this.plugin.persist({ onboarded: true });
+	/** A three-step tour that lights the real controls: Search, Filters, Flow. Shown once; "Show tips" in the shortcuts card brings it back. */
+	showTour(): void {
+		this.tourStep = 0;
+		this.renderTour();
+	}
+
+	private endTour(): void {
+		this.tourStep = -1;
+		this.root.querySelectorAll(".is-tour").forEach((e) => e.classList.remove("is-tour"));
+		this.tourCard?.remove();
+		this.tourCard = null;
+		void this.plugin.persist({ onboarded: true });
+	}
+
+	private renderTour(): void {
+		const steps: { el: HTMLElement | null; key: StringKey }[] = [
+			{ el: this.searchBtn, key: "tour.search" },
+			{ el: this.filterBtn, key: "tour.filters" },
+			{ el: this.toolsRow.querySelector("button") as HTMLElement | null, key: "tour.flow" },
+		];
+		this.root.querySelectorAll(".is-tour").forEach((e) => e.classList.remove("is-tour"));
+		const st = steps[this.tourStep];
+		if (!st) return this.endTour();
+		this.tourCard?.remove();
+		const card = (this.tourCard = this.root.createDiv({ cls: "llm-wiki-brain-tour", attr: { role: "dialog", "aria-label": this.t("tour.title") } }));
+		card.createDiv({ cls: "llm-wiki-brain-tour-step", text: `${this.tourStep + 1} / ${steps.length}` });
+		card.createEl("p", { text: this.t(st.key) });
+		const row = card.createDiv({ cls: "llm-wiki-brain-tour-actions" });
+		row.createEl("button", { text: this.t("tour.skip") }).addEventListener("click", () => this.endTour());
+		const next = row.createEl("button", { cls: "mod-cta", text: this.t(this.tourStep === steps.length - 1 ? "tour.done" : "tour.next") });
+		next.addEventListener("click", () => {
+			this.tourStep++;
+			this.renderTour();
 		});
-		const skip = card.createEl("button", { text: this.t("keys.close") });
-		skip.addEventListener("click", () => {
-			card.remove();
-			void this.plugin.persist({ onboarded: true });
-		});
+		card.addEventListener("keydown", (e) => { if (e.key === "Escape") this.endTour(); });
+		if (st.el) {
+			st.el.addClass("is-tour");
+			const r = st.el.getBoundingClientRect(), rr = this.root.getBoundingClientRect();
+			card.style.left = Math.round(r.right - rr.left + 10) + "px";
+			card.style.top = Math.round(Math.max(8, Math.min(r.top - rr.top, rr.height - 190))) + "px";
+		}
+		next.focus();
 	}
 
 	async onClose(): Promise<void> {

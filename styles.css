@@ -796,22 +796,6 @@
 .llm-wiki-brain-stage {
 	position: relative;
 }
-.llm-wiki-brain-wizard {
-	position: absolute;
-	left: 12px;
-	top: 12px;
-	max-width: 24em;
-	padding: 10px 14px;
-	border-radius: 8px;
-	background: var(--background-secondary);
-	border: 1px solid var(--background-modifier-border);
-	box-shadow: var(--shadow-s);
-	font-size: var(--font-ui-small);
-}
-.llm-wiki-brain-wizard p {
-	margin: 4px 0;
-	color: var(--text-muted);
-}
 
 /* Active filter chips, results list, legend, tooltip, cards */
 .llm-wiki-brain-tools.is-collapsed {
@@ -1810,4 +1794,37 @@
 }
 .llm-wiki-brain-alert span {
 	flex: 1 1 auto;
+}
+
+/* The tour: a card beside the control it is about, and a ring on that control. */
+.llm-wiki-brain-tour {
+	position: absolute;
+	z-index: 5;
+	width: 260px;
+	padding: var(--size-4-3, 12px) var(--size-4-4);
+	background: var(--background-secondary);
+	border: 1px solid var(--interactive-accent);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-small);
+}
+.llm-wiki-brain-tour p {
+	margin: var(--size-4-1) 0 var(--size-4-2);
+}
+.llm-wiki-brain-tour-step {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.llm-wiki-brain-tour-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+}
+.is-tour {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+.llm-wiki-brain-card-intro {
+	margin: var(--size-4-1) 0 var(--size-4-2);
+	color: var(--text-muted);
 }
