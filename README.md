@@ -16,7 +16,7 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
 
 1. Click the brain icon in the ribbon, or run the command **Open brain view**.
 2. Drag to rotate, scroll to zoom, click a neuron to see its inputs and outputs, double-click to open the note.
-3. Type in the search box to dim everything that does not match; press `Enter` to **ask**, and the answer spreads along the links.
+3. Click the search icon and type: what does not match dims. `Enter` walks the matches, `Cmd/Ctrl`+`Enter` **asks** the brain, and the answer spreads along the links. The box folds away after 10 seconds without use and leaves a dot on the icon and a pill while the search still filters.
 4. Press `?` on the canvas for every shortcut, and the `?` next to the search box for the search syntax.
 
 A short card explains the picture the first time you open the view.
@@ -56,7 +56,7 @@ A link is a synapse, and the picture follows the biology:
 
 ## Search
 
-Type to highlight matches and dim the rest. `Enter` asks (the answer spreads along the links); `Enter` again, or `›` / `‹`, walks the matches with the camera; `Esc` clears. A clickable list shows the first results, **Copy** puts all of them on the clipboard as `[[links]]`, and "Hide pages that do not match the search" in the Filters panel removes the rest instead of dimming. Suggestions complete the search as you type, and the last 12 searches asked with `Enter` are remembered.
+Open the search from its icon in the rail (or the command) and type to highlight matches and dim the rest. `Enter`, or `›` / `‹`, walks the matches with the camera; `Shift`+`Enter` goes back; `Cmd/Ctrl`+`Enter` asks (the answer spreads along the links); `Esc` clears, and a second `Esc` folds the box away. It folds by itself after 10 seconds without use; while it still filters, the icon carries a dot and a pill shows the query. A clickable list shows the first results, **Copy** puts all of them on the clipboard as `[[links]]`, and "Hide pages that do not match the search" in the Filters panel removes the rest instead of dimming. Suggestions complete the search as you type, and the last 12 searches asked with `Enter` are remembered.
 
 | Syntax | Meaning |
 |---|---|
@@ -88,7 +88,7 @@ The **Filters** button opens the panel (a live line says "Showing N of M"):
 - **Clear filters**, and a ✕ button right after the search box that clears the filters and the search in one click
 - **Saved views:** name the current filters and search, save them, pick them again (up to 20)
 - **One-click presets:** Orphans, Hubs, Recent (30 days), New (30 days), Sinks, Sources and Invert replace the active filter set in one click
-- **Fixed icon rail:** type chips and toolbar live in a fixed 44 px icon rail; search and filters live in a floating panel. Filters, search, selection and camera are saved with the pane
+- **Rail:** it opens expanded, with a label on every control and three groups (Types, Quick views, Tools) under Search and Filters; the toggle remembers how you left it, and a pane under 640 px folds it into a top bar with a bottom sheet for the filters. Each filter has one home: the quick views in the rail, the switches in the Filters panel. Filters, search, selection and camera are saved with the pane
 
 Filters, search, selection and camera are saved with the pane, so the view comes back as you left it. The **log filter** shows only the pages a `wiki/log.md` operation (ingest, query, lint…) touched, matched by page name in the entry title.
 
@@ -116,9 +116,10 @@ In the Filters panel: **Color by** type (default), folder, tag, age or links, an
 | `1` `2` `3` | front, top and side views |
 | `n` `p` or `]` `[` | next / previous hub |
 | `Alt`+arrows | hop to the neighbour in that direction |
-| `Enter` · `Cmd/Ctrl`+`Enter` · double-click | open the selected note · open to the side |
+| `Enter` · `Cmd/Ctrl`+`Enter` · double-click | open the selected note · open to the side (with the canvas focused) |
 | `Esc` | clear the selection |
-| `f` | full screen |
+| `f` | open or close the Filters panel (not while typing in a field) |
+| `Shift`+`f` | full screen |
 | `?` | list the shortcuts |
 
 ## Commands
