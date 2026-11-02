@@ -72,6 +72,8 @@ export interface EngineOptions {
 	labelScale?: () => number;
 }
 
+interface AxonGeom { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] }
+
 interface Cell {
 	id: number;
 	path: string;
@@ -94,6 +96,8 @@ interface Cell {
 	sz: number; // size multiplier (the size-by option)
 	deg: number;
 	adj: number[];
+	axonSeq: number; // the draw that axonG was computed for
+	axonG: AxonGeom | null;
 	pulse: number;
 	ps: number; // pulse as drawn: rises fast, then follows `pulse` down smoothly
 	lit: number;
@@ -289,6 +293,7 @@ export class BrainEngine {
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private somaStops: Partial<Record<PageType, string[]>> = {};
+	private somaGrad: Partial<Record<PageType, CanvasGradient>> = {}; // in unit space: one gradient per type, moved and scaled with the transform
 	private boutonColor = "rgb(230,255,251)";
 	private light = false;
 	private palRGB: Partial<Record<PageType, string>> = {};
@@ -310,6 +315,9 @@ export class BrainEngine {
 	private simpleEdges = false;
 	private simTick = 0;
 	private fullFlags = new Uint8Array(0);
+	private nbBuf = new Uint8Array(0); // neighbours of the focused page, reused every draw
+	private drawSeq = 0;
+	private anyFiltered = false;
 	private candBuf: Cell[] = [];
 	private ema = 4;
 	private slow = 0;
@@ -391,12 +399,13 @@ export class BrainEngine {
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
 				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
+				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], axonSeq: -1, axonG: null,
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
 		next.forEach((c, i) => (c.id = i));
 		this.nodes = next;
+		this.anyFiltered = false;
 		this.byPath = byPath;
 		this.order = next.slice();
 		this.edges = [];
@@ -498,6 +507,7 @@ export class BrainEngine {
 	/** Show only these pages (null shows all). */
 	setFilter(paths: Set<string> | null): void {
 		for (const n of this.nodes) n.filtered = paths !== null && !paths.has(n.path);
+		this.anyFiltered = paths !== null && this.nodes.some((n) => n.filtered);
 		this.applyVisibility();
 	}
 
@@ -1212,6 +1222,11 @@ export class BrainEngine {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16);
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
+			const sg = this.ctx.createRadialGradient(-0.25, -0.3, 0.05, 0, 0, 1.25);
+			sg.addColorStop(0, this.somaStops[t]![0]);
+			sg.addColorStop(0.45, this.somaStops[t]![1]);
+			sg.addColorStop(1, this.somaStops[t]![2]);
+			this.somaGrad[t] = sg;
 			this.palRGB[t] = hexToRgb(this.pal[t]).join(",");
 			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
@@ -1880,6 +1895,7 @@ export class BrainEngine {
 
 	private draw(): void {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
+		this.drawSeq++;
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
 		this.lowDetail = nodes.length > 600 || this.quality === 0;
@@ -1896,7 +1912,9 @@ export class BrainEngine {
 			ctx.globalAlpha = 1;
 		}
 		const f = this.hovered !== -1 ? this.hovered : this.selected, fn = f >= 0 ? nodes[f] : null;
-		const nb = new Uint8Array(nodes.length);
+		if (this.nbBuf.length !== nodes.length) this.nbBuf = new Uint8Array(nodes.length);
+		const nb = this.nbBuf;
+		nb.fill(0);
 		if (fn) {
 			nb[f] = 1;
 			for (const j of fn.adj) nb[j] = 1;
@@ -1956,7 +1974,7 @@ export class BrainEngine {
 			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
 		} else for (const n of order) full[n.id] = 1;
 		let rings = 400; // pulse rings are a stroke each: a vault that just loaded must not draw ten thousand
-		if (this.ghosts && nodes.some((n) => n.filtered)) { // where the filtered-out pages are: faint dots
+		if (this.ghosts && this.anyFiltered) { // where the filtered-out pages are: faint dots
 			ctx.globalAlpha = 0.2;
 			ctx.fillStyle = "rgb(" + this.edgeRGB + ")";
 			ctx.beginPath();
@@ -2129,9 +2147,12 @@ export class BrainEngine {
 		const px: number[] = [], py: number[] = [];
 		for (let i = 0; i < N; i++) {
 			const th = (i / N) * 2 * Math.PI;
-			px.push(n.px + Math.cos(th) * R * k[i]);
-			py.push(n.py + Math.sin(th) * R * k[i]);
+			px.push(Math.cos(th) * k[i]);
+			py.push(Math.sin(th) * k[i]);
 		}
+		ctx.save();
+		ctx.translate(n.px, n.py); // the outline is built in unit space: the shared gradient follows the cell
+		ctx.scale(R, R);
 		ctx.beginPath();
 		ctx.moveTo((px[0] + px[N - 1]) / 2, (py[0] + py[N - 1]) / 2);
 		for (let i = 0; i < N; i++) {
@@ -2139,17 +2160,13 @@ export class BrainEngine {
 			ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
 		}
 		ctx.closePath();
-		const st = this.somaStops[n.vt] ?? ["#fff", "#888", "#000"];
-		const g = ctx.createRadialGradient(n.px - R * 0.25, n.py - R * 0.3, R * 0.05, n.px, n.py, R * 1.25);
-		g.addColorStop(0, st[0]);
-		g.addColorStop(0.45, st[1]);
-		g.addColorStop(1, st[2]);
 		ctx.globalAlpha = al;
-		ctx.fillStyle = g;
+		ctx.fillStyle = this.somaGrad[n.vt] ?? "#888";
 		ctx.fill();
-		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07);
+		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
+		ctx.restore();
 		if (R > 7 * dpr) { // nucleus
 			ctx.globalAlpha = al * 0.35;
 			ctx.fillStyle = this.light ? "rgb(255,255,255)" : "rgb(10,70,62)";
@@ -2235,7 +2252,14 @@ export class BrainEngine {
 
 	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
 	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
-	private axonGeom(n: Cell): { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] } | null {
+	private axonGeom(n: Cell): AxonGeom | null {
+		if (n.axonSeq === this.drawSeq) return n.axonG; // asked once per draw: the links and the neuron share it
+		n.axonSeq = this.drawSeq;
+		n.axonG = this.computeAxon(n);
+		return n.axonG;
+	}
+
+	private computeAxon(n: Cell): AxonGeom | null {
 		const R = n.pr, [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
 		if (l < 0.12) return null; // only when it points straight at (or away from) the viewer
 		const ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
