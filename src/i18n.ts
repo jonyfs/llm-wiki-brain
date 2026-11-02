@@ -174,7 +174,7 @@ const EN = {
 	"keys.mouse": "Drag: rotate. Shift+drag or right drag: pan. Wheel: zoom. Double-click: open. Right-click: menu.",
 	"keys.legend": "The arc around a page is its charge before it fires. Red spikes inhibit. A dashed ring: edited in the last day.",
 	"keys.close": "Close",
-	"keys.fullscreen": "F: toggle fullscreen.",
+	"keys.fullscreen": "Shift+F: toggle fullscreen.",
 	"keys.help": "?: toggle help.",
 	"keys.panel": "F: toggle filter panel.",
 
@@ -463,7 +463,7 @@ const PT: Dict = {
 	"keys.mouse": "Arrastar: girar. Shift+arrastar ou botão direito: mover. Roda: zoom. Duplo clique: abrir. Clique direito: menu.",
 	"keys.legend": "O arco em volta da página é a carga antes de disparar. Pulsos vermelhos inibem. Anel tracejado: editada no último dia.",
 	"keys.close": "Fechar",
-	"keys.fullscreen": "F: alternar tela cheia.",
+	"keys.fullscreen": "Shift+F: alternar tela cheia.",
 	"keys.help": "?: alternar ajuda.",
 	"keys.panel": "F: alternar painel de filtros.",
 

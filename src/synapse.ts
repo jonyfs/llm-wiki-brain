@@ -184,10 +184,10 @@ export function myelinOf(net: Net, s: Synapse): number {
 
 /**
  * Speed multiplier at position `t` (0..1) along a synapse of myelination `m`: unmyelinated is a steady crawl;
- * myelinated jumps between the nodes of Ranvier (fast stretches, brief slow ones), faster overall.
+ * myelinated glides between the nodes of Ranvier (a smooth wave of fast stretches and slower ones, never a stop),
+ * faster overall. Continuous in t, so the spike never jerks.
  */
 export function conduction(m: number, t: number): number {
 	if (m <= 0) return 1;
-	const hop = (t * 6) % 1; // six nodes of Ranvier along the link
-	return 1 + m * (hop < 0.7 ? 2.4 : -0.6);
+	return 1 + m * (0.3 + 0.9 * Math.sin(2 * Math.PI * (t * 6 - 0.1))); // six nodes of Ranvier along the link
 }

@@ -15,6 +15,7 @@ export interface PortNode {
 	din?: number; // links that arrive here: only these need dendrites
 	den: Den[];
 	port: number[]; // how many links leave through each dendrite
+	axon?: number[]; // unit direction (cell frame) the axon leaves in
 }
 
 // a, b, bend, crosses the midline, dendrite used at a, dendrite used at b (the last two are filled in here)
@@ -55,6 +56,15 @@ export function assignPorts(nodes: PortNode[], edges: PortEdge[], grow: (n: Port
 		const want = wantedDendrites(n.din ?? n.deg);
 		if (n.den.length < want) grow(n, want);
 		const load = new Array<number>(n.den.length).fill(0);
+		if (isOut) { // the axon leaves facing the pages this cell links to
+			const aim: number[][] = [];
+			for (const ei of inc[n.id]) {
+				if (!isOut(ei, n.id)) continue;
+				const e = edges[ei], o = nodes[e[0] === n.id ? e[1] : e[0]], dx = o.x - n.x, dy = o.y - n.y, dz = o.z - n.z, dl = Math.hypot(dx, dy, dz) || 1;
+				aim.push([dx / dl, dy / dl, dz / dl]);
+			}
+			n.axon = axonDirection(n.den, aim);
+		}
 		const units = n.den.map((d) => {
 			const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
 			return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
@@ -119,6 +129,36 @@ export function freeDirection(den: Den[], samples = 64): [number, number, number
 		if (units.length === 0) nearest = 1;
 		if (nearest > bs) {
 			bs = nearest;
+			best = v;
+		}
+	}
+	return best;
+}
+
+/**
+ * Where the axon leaves: as close as it can get to the mean direction of the cells it links to, but never on top of
+ * a dendrite (a branch that already points that way keeps it; the axon takes the nearest clear side). With no
+ * targets it takes the freest direction, as before.
+ */
+export function axonDirection(den: Den[], targets: number[][], samples = 96): [number, number, number] {
+	if (!targets.length) return freeDirection(den);
+	const units = den.map((d) => {
+		const l = Math.hypot(d.t[0], d.t[1], d.t[2]) || 1;
+		return [d.t[0] / l, d.t[1] / l, d.t[2] / l];
+	});
+	let best: [number, number, number] = [0, 1, 0], bs = -1e9;
+	const g = Math.PI * (3 - Math.sqrt(5));
+	for (let i = 0; i < samples; i++) {
+		const y = 1 - (2 * (i + 0.5)) / samples, r = Math.sqrt(1 - y * y), th = g * i;
+		const v: [number, number, number] = [Math.cos(th) * r, y, Math.sin(th) * r];
+		let aim = 0;
+		for (const t of targets) aim += t[0] * v[0] + t[1] * v[1] + t[2] * v[2];
+		aim /= targets.length;
+		let room = 2; // 1 - cos to the nearest dendrite: 0 means on top of it
+		for (const u of units) room = Math.min(room, 1 - (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+		const score = aim - (room < 0.3 ? (0.3 - room) * 2.5 : 0);
+		if (score > bs) {
+			bs = score;
 			best = v;
 		}
 	}

@@ -95,6 +95,7 @@ interface Cell {
 	deg: number;
 	adj: number[];
 	pulse: number;
+	ps: number; // pulse as drawn: rises fast, then follows `pulse` down smoothly
 	lit: number;
 	flag: boolean;
 	match: boolean;
@@ -260,6 +261,7 @@ export class BrainEngine {
 	private tpy = 0;
 	private animating = false;
 	private vyaw = 0;
+	private autoV = 0;
 	private vpitch = 0;
 	private W = 1;
 	private H = 1;
@@ -290,6 +292,7 @@ export class BrainEngine {
 	private boutonColor = "rgb(230,255,251)";
 	private light = false;
 	private palRGB: Partial<Record<PageType, string>> = {};
+	private mutedRGB: Partial<Record<PageType, string>> = {}; // the type colour pulled toward grey: for links, branches and spikes, which must not out-shine the cells
 	private pal = COLORS.dark;
 	private ghost: HTMLCanvasElement | null = null;
 	private edgeRGB = "139,151,255";
@@ -386,7 +389,7 @@ export class BrainEngine {
 			if (kept && kept.length >= 3) pos = [kept[0], kept[1], kept[2]]; // where it was left last time
 			next.push({
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
-				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, lit: 0,
+				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
 				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
 			});
@@ -1106,7 +1109,7 @@ export class BrainEngine {
 			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
 			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
 		}, (ei, id) => this.edges[ei][0] === id && !this.mutual[ei]); // a one-way link leaves through the axon of the page that holds it
-		for (const n of this.nodes) n.axon = freeDirection(n.den);
+		for (const n of this.nodes) if (!n.axon || !n.axon.length) n.axon = freeDirection(n.den);
 		this.portsDirty = false;
 	}
 
@@ -1198,18 +1201,19 @@ export class BrainEngine {
 		const light = document.body.classList.contains("theme-light");
 		const cs = getComputedStyle(this.canvas);
 		this.pal = COLORS[light ? "light" : "dark"];
-		this.edgeRGB = light ? "67,56,202" : "139,151,255";
+		this.edgeRGB = light ? "100,104,136" : "108,118,148"; // quiet slate-blue: links must not out-shine the cells
 		this.labelColor = cs.getPropertyValue("--text-normal").trim() || (light ? "#222" : "#e8eaf0");
 		this.bgColor = cs.getPropertyValue("--background-primary").trim() || (light ? "#fff" : "#0d1017");
 		this.warnColor = light ? "#b45309" : "#f59e0b";
 		this.ghostAlpha = light ? 0.7 : 0.55;
 		this.light = light;
-		this.boutonColor = light ? "rgb(30,40,60)" : "rgb(230,255,251)";
+		this.boutonColor = light ? "rgb(50,62,86)" : "rgb(176,226,218)";
 		for (const t of TYPES) {
-			this.sprites[t] = makeSprite(this.pal[t], light ? 0.22 : 0.4);
-			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.22 : 0.4, false);
+			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16);
+			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
 			this.palRGB[t] = hexToRgb(this.pal[t]).join(",");
+			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
 		this.ghost = makeGhost(this.edgeRGB);
 		this.start();
@@ -1384,7 +1388,7 @@ export class BrainEngine {
 			else if (k === "+" || k === "=") this.zoomAt(this.tz * 1.2, this.W / 2, this.H / 2, true);
 			else if (k === "-" || k === "_") this.zoomAt(this.tz / 1.2, this.W / 2, this.H / 2, true);
 			else if (k === "0") this.resetView();
-			else if (k === "f" || k === "F") this.opts.onFullscreen();
+			else if ((k === "f" || k === "F") && e.shiftKey) this.opts.onFullscreen(); // plain F belongs to the filter panel
 			else if (k === "Escape") this.select(-1);
 			else if (k === "Enter" && this.selected >= 0) {
 				this.flyTo(this.nodes[this.selected]);
@@ -1515,13 +1519,15 @@ export class BrainEngine {
 			if (Math.abs(this.vyaw) > 1e-4 || Math.abs(this.vpitch) > 1e-4) {
 				this.yaw += this.vyaw * dt;
 				this.pitch = clamp(this.pitch + this.vpitch * dt, -1.25, 1.25);
-				this.vyaw *= 0.94;
-				this.vpitch *= 0.94;
+				const damp = Math.pow(0.94, dt); // per 16.7 ms, so the glide lasts the same on a 60 Hz and a 120 Hz screen
+				this.vyaw *= damp;
+				this.vpitch *= damp;
 				busy = true;
 			} else if (this.auto && this.hovered === -1) {
-				this.yaw += 0.0016 * dt;
+				this.autoV += (0.0016 - this.autoV) * (1 - Math.exp(-dt * 0.04)); // eases in after a glide instead of starting abruptly
+				this.yaw += this.autoV * dt;
 				ambientOnly = true;
-			}
+			} else this.autoV = 0;
 		}
 		if (this.animating) {
 			const k = 1 - Math.pow(0.001, dt / 14);
@@ -1540,6 +1546,7 @@ export class BrainEngine {
 			this.net.tick();
 			this.leakAt = this.tNow + 350;
 		}
+		if (this.drifting()) ambientOnly = true;
 		// Ambient signals keep the brain alive between events.
 		const amb = this.opts.ambient();
 		if (amb > 0 && !this.opts.reducedMotion && this.quality > 0) {
@@ -1548,7 +1555,7 @@ export class BrainEngine {
 		}
 		for (let i = this.signals.length - 1; i >= 0; i--) {
 			const s = this.signals[i];
-			s.t += s.v * dt * conduction(s.m, s.t);
+			s.t += s.v * dt * conduction(s.m, s.t) * (0.6 + 0.4 * Math.sin(Math.PI * Math.min(1, s.t))); // eases in and out of each link
 			if (this.signals.length) ambientOnly = true;
 			if (s.t < 1) continue;
 			const ed = this.edges[s.e], to = s.rev ? ed[0] : ed[1], tn = this.nodes[to];
@@ -1598,12 +1605,16 @@ export class BrainEngine {
 		const bc = this.bc;
 		if (bc) {
 			busy = true;
-			const el = this.tNow - bc.t0;
+			const el = this.tNow - bc.t0, hops = bc.levels.length - 1, cur = Math.floor(el / bc.hop) + 1;
+			if (el >= 0 && cur >= 1 && cur <= hops) { // the pages the wave is about to reach charge up as it nears them, so arriving is a settle, not a jolt
+				const u = Math.min(1, (el - (cur - 1) * bc.hop) / bc.hop), lift = 0.6 * u * u * u;
+				for (const id of bc.levels[cur]) if (this.nodes[id].pulse < lift) this.nodes[id].pulse = lift;
+			}
 			while (bc.shown + 1 < bc.levels.length && el >= (bc.shown + 1) * bc.hop) {
 				bc.shown++;
 				for (const id of bc.levels[bc.shown]) {
 					const n = this.nodes[id];
-					n.pulse = id === bc.focus ? 1.4 : 1;
+					n.pulse = id === bc.focus ? 1.15 : 1;
 					n.lit = this.tNow + (id === bc.focus ? 4200 : 2200);
 					bc.reached++;
 				}
@@ -1635,7 +1646,13 @@ export class BrainEngine {
 		}
 		for (const n of this.nodes) {
 			if (n.pulse > 0) {
-				n.pulse = Math.max(0, n.pulse - 0.012 * dt);
+				n.pulse *= Math.exp(-0.045 * dt); // exponential, like a membrane potential, not a straight ramp
+				if (n.pulse < 0.01) n.pulse = 0;
+				busy = true;
+			}
+			if (n.ps > 0.004 || n.pulse > n.ps) { // what is drawn rises fast and follows down smoothly
+				n.ps += (n.pulse - n.ps) * (1 - Math.exp(-dt * (n.pulse > n.ps ? 0.2 : 0.3)));
+				if (n.ps < 0.004 && n.pulse === 0) n.ps = 0;
 				busy = true;
 			}
 			if (this.tNow < n.lit) busy = true;
@@ -1645,9 +1662,9 @@ export class BrainEngine {
 			this.flagUntil = 0;
 			for (const n of this.nodes) n.flag = false;
 		}
-		// With only ambient motion on screen, 30 fps is plenty and saves battery.
+		// With only ambient motion on screen, draw at up to ~60 fps so drift and signals stay smooth.
 		const idleOnly = !busy && ambientOnly;
-		if (!idleOnly || now - this.lastDraw >= 33) {
+		if (!idleOnly || now - this.lastDraw >= 14) {
 			const t0 = performance.now();
 			try {
 				this.draw();
@@ -1670,23 +1687,40 @@ export class BrainEngine {
 		return [(a.px + b.px) / 2 - (b.py - a.py) * k, (a.py + b.py) / 2 + (b.px - a.px) * k];
 	}
 
+	/** Depth of a cell-frame vector under the camera: negative faces the viewer, positive faces away. */
+	private rotz(v: number[]): number {
+		const z1 = -v[0] * this.camSy + v[2] * this.camCy;
+		return v[1] * this.camSp + z1 * this.camCp;
+	}
+
 	private rotv(v: number[]): [number, number] {
 		const x1 = v[0] * this.camCy + v[2] * this.camSy, z1 = -v[0] * this.camSy + v[2] * this.camCy;
 		return [x1, v[1] * this.camCp - z1 * this.camSp];
+	}
+
+	/** Idle sway only for modest graphs, and never with reduced motion. */
+	private drifting(): boolean {
+		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 600;
 	}
 
 	private project(): void {
 		const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw), cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
 		this.S0 = (Math.min(this.W, this.H * 1.05) / 470) * this.zoom;
 		this.camCy = cy; this.camSy = sy; this.camCp = cp; this.camSp = sp;
+		const drift = this.drifting();
 		const cx = this.W / 2 + this.panX, cyy = this.H / 2 + this.panY, rk = this.S0 * Math.pow(this.zoom, -0.35) * 0.62;
 		for (const n of this.nodes) {
 			const x1 = n.x * cy + n.z * sy, z1 = -n.x * sy + n.z * cy, y1 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp, p = DIST / (DIST + z2);
 			n.px = cx + x1 * p * this.S0;
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
+			if (drift) { // a cell is never perfectly still: a slow, render-only sway (picking and links follow it)
+				const ph = n.id * 2.399963, w = this.tNow * 0.0007;
+				n.px += (Math.sin(w + ph) + 0.5 * Math.sin(w * 1.7 + ph * 2)) * 1.1 * this.dpr;
+				n.py += (Math.cos(w * 0.9 + ph * 1.3) + 0.5 * Math.sin(w * 1.3 + ph)) * 1.1 * this.dpr;
+			}
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
-			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.pulse * 6) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
+			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.ps * 3.2) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
 		}
 		if (this.nodes.length > 800) {
 			this.pickGrid.clear();
@@ -1878,22 +1912,22 @@ export class BrainEngine {
 		const dimAll = fn || this.matchActive;
 		for (let q = 2; q >= 0; q--) {
 			if (!bk[q].length) continue;
-			const base = 0.34 - q * 0.1;
+			const base = 0.14 - q * 0.04;
 			ctx.strokeStyle = "rgba(" + this.edgeRGB + "," + (dimAll ? base * 0.3 : base) + ")";
 			ctx.beginPath();
 			this.edgePath(bk[q]);
 			ctx.stroke();
 		}
 		if (tracts.length) {
-			ctx.lineWidth = dpr * 1.7;
-			ctx.strokeStyle = "rgba(" + this.palRGB.entity + "," + (dimAll ? 0.12 : 0.34) + ")";
+			ctx.lineWidth = dpr * 1.4;
+			ctx.strokeStyle = "rgba(" + this.mutedRGB.entity + "," + (dimAll ? 0.06 : 0.14) + ")";
 			ctx.beginPath();
 			this.edgePath(tracts);
 			ctx.stroke();
 		}
 		if (fn) {
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.9)";
-			ctx.lineWidth = dpr * 1.7;
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.55)";
+			ctx.lineWidth = dpr * 1.4;
 			ctx.beginPath();
 			for (const e of this.edges) {
 				if (e[0] !== f && e[1] !== f) continue;
@@ -1939,8 +1973,9 @@ export class BrainEngine {
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
 			const al = clamp((1 - n.pd * 0.62) * (dim ? 0.16 : 1), 0.05, 1), size = n.pr * 4.55;
 			ctx.globalAlpha = 1;
-			if (!lowDetail) this.drawDendrites(n, al * 0.65);
-			if (!lowDetail && this.quality > 1 && n.pr > 6 * dpr) this.drawAxon(n, al);
+			const axonFront = this.rotz(n.axon) < 0, axonOn = !lowDetail && this.quality > 1 && n.pr > 6 * dpr;
+			if (!lowDetail) this.drawDendrites(n, al * 0.65, false);
+			if (axonOn && !axonFront) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
 			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
 			if (this.quality > 0 && n.pr > 4.5 * dpr && (full[n.id] === 1 || special)) {
@@ -1951,6 +1986,9 @@ export class BrainEngine {
 				const sp = this.sprites[n.vt];
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
 			}
+			ctx.globalAlpha = 1;
+			if (!lowDetail) this.drawDendrites(n, al * 0.65, true);
+			if (axonOn && axonFront) this.drawAxon(n, al);
 			const charge = this.net && this.quality > 0 ? this.net.charge(n.id) : 0;
 			if (charge > 0.04 && n.pr > 3 * dpr) { // membrane potential: the arc closes as the cell nears its threshold
 				ctx.globalAlpha = (0.35 + 0.5 * charge) * al;
@@ -1961,18 +1999,18 @@ export class BrainEngine {
 				ctx.arc(n.px, n.py, n.pr * 1.28, -1.5708, -1.5708 + 6.2832 * charge);
 				ctx.stroke();
 			}
-			if (n.pulse > 0.08 && this.quality > 0 && (rings-- > 0 || special)) {
-				ctx.globalAlpha = n.pulse * 0.5 * al;
+			if (n.ps > 0.08 && this.quality > 0 && (rings-- > 0 || special)) {
+				ctx.globalAlpha = n.ps * 0.3 * al;
 				ctx.lineWidth = dpr;
 				ctx.strokeStyle = "rgb(" + this.palRGB[n.vt] + ")";
 				ctx.beginPath();
-				ctx.arc(n.px, n.py, Math.max(0, n.pr * (1.3 + (1 - n.pulse) * 2.4)), 0, 6.2832);
+				ctx.arc(n.px, n.py, Math.max(0, n.pr * (1.3 + (1 - n.ps) * 2.4)), 0, 6.2832);
 				ctx.stroke();
 			}
 			ctx.globalAlpha = 1;
 			if (fn && nb[n.id] && n.id !== f) { // the page in focus lights its neighbours with a halo
-				ctx.globalAlpha = 0.7;
-				ctx.lineWidth = dpr * 1.3;
+				ctx.globalAlpha = 0.45;
+				ctx.lineWidth = dpr * 1.1;
 				ctx.strokeStyle = "rgb(" + this.edgeRGB + ")";
 				ctx.beginPath();
 				ctx.arc(n.px, n.py, n.pr * 1.6 + dpr * 3, 0, 6.2832);
@@ -2025,7 +2063,7 @@ export class BrainEngine {
 	private drawRoutes(): void {
 		const ctx = this.ctx, dpr = this.dpr;
 		for (const p of this.packets) {
-			ctx.globalAlpha = clamp(p.fade, 0, 1) * 0.55;
+			ctx.globalAlpha = clamp(p.fade, 0, 1) * 0.4;
 			ctx.strokeStyle = this.labelColor;
 			ctx.lineWidth = dpr * 1.8;
 			ctx.setLineDash(p.virtual ? [6 * dpr, 5 * dpr] : []);
@@ -2054,7 +2092,7 @@ export class BrainEngine {
 		const ctx = this.ctx, dpr = this.dpr;
 		for (const p of this.packets) {
 			if (p.done) continue;
-			const type = this.nodes[p.segs[p.seg][0]].vt, col = this.palRGB[type] ?? "255,255,255";
+			const type = this.nodes[p.segs[p.seg][0]].vt, col = this.mutedRGB[type] ?? "255,255,255";
 			for (let i = 10; i >= 0; i--) { // trail: earlier positions along the route, fading
 				let tt = p.t - i * 0.05, sg = p.seg;
 				while (tt < 0 && sg > 0) {
@@ -2070,10 +2108,10 @@ export class BrainEngine {
 				ctx.fill();
 			}
 			const [hx, hy] = this.segPoint(p.segs[p.seg], p.t);
-			ctx.globalAlpha = 0.35;
+			ctx.globalAlpha = 0.2;
 			ctx.fillStyle = "rgb(" + col + ")";
 			ctx.beginPath();
-			ctx.arc(hx, hy, 8 * dpr, 0, 6.2832);
+			ctx.arc(hx, hy, 6 * dpr, 0, 6.2832);
 			ctx.fill();
 		}
 		ctx.globalAlpha = 1;
@@ -2110,7 +2148,7 @@ export class BrainEngine {
 		ctx.fillStyle = g;
 		ctx.fill();
 		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07);
-		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.55)" : "rgba(220,255,250,0.8)";
+		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
 		if (R > 7 * dpr) { // nucleus
 			ctx.globalAlpha = al * 0.35;
@@ -2123,19 +2161,20 @@ export class BrainEngine {
 	}
 
 	/** Branches narrow along their length; those that carry a link are bright and end in a bouton, free ones stay faint. */
-	private drawDendrites(n: Cell, al: number): void {
+	private drawDendrites(n: Cell, al: number, front: boolean): void {
 		const ctx = this.ctx, dpr = this.dpr;
 		if (!this.denVisible(n)) return;
-		const k = this.denScale(n), col = this.palRGB[n.vt] ?? "255,255,255";
+		const k = this.denScale(n), col = this.mutedRGB[n.vt] ?? "255,255,255";
 		const real = this.quality > 1 && n.pr > 6 * dpr; // spines and branch forks only when the cell is big enough to show them
 		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1);
 		for (const used of [false, true]) {
-			const a = used ? Math.min(1, al * 1.5) : al * 0.5, tips: number[] = [], spines: number[] = [], forks: number[] = [];
+			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], spines: number[] = [], forks: number[] = [];
 			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
 			for (let i = 0; i < n.den.length; i++) {
 				if ((n.port[i] ?? 0) > 0 !== used) continue;
 				const d = n.den[i];
+				if (this.rotz(d.t) < 0 !== front) continue; // branches facing away are drawn under the soma, those facing us over it
 				const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
 				const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
 				const pts = quadPoints(n.px, n.py, mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty, real ? 7 : 4);
@@ -2176,7 +2215,7 @@ export class BrainEngine {
 			}
 			const rr = Math.max(0.9 * dpr, n.pr * 0.14) * (used ? 1.3 : 0.8);
 			if (used && real) { // the bouton: a glow, then a bright core
-				ctx.fillStyle = "rgba(" + col + ",0.35)";
+				ctx.fillStyle = "rgba(" + col + ",0.06)";
 				ctx.beginPath();
 				for (let i = 0; i < tips.length; i += 2) {
 					ctx.moveTo(tips[i] + rr * 2, tips[i + 1]);
@@ -2184,7 +2223,7 @@ export class BrainEngine {
 				}
 				ctx.fill();
 			}
-			ctx.fillStyle = used ? this.boutonColor : "rgba(" + col + "," + a + ")";
+			ctx.fillStyle = used ? "rgba(" + col + "," + Math.min(0.75, a + 0.2) + ")" : "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
 			for (let i = 0; i < tips.length; i += 2) {
 				ctx.moveTo(tips[i] + rr, tips[i + 1]);
@@ -2198,7 +2237,7 @@ export class BrainEngine {
 	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
 	private axonGeom(n: Cell): { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] } | null {
 		const R = n.pr, [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
-		if (l < 0.3) return null;
+		if (l < 0.12) return null; // only when it points straight at (or away from) the viewer
 		const ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
 		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
 		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
@@ -2216,15 +2255,15 @@ export class BrainEngine {
 		const g = this.axonGeom(n);
 		if (!g) return;
 		const { hx, hy, ux, uy, qx, qy, cx, cy, bx, by, tips } = g;
-		const col = this.palRGB[n.vt] ?? "255,255,255";
-		ctx.fillStyle = "rgba(" + col + "," + al * 0.8 + ")"; // hillock
+		const col = this.mutedRGB[n.vt] ?? "255,255,255";
+		ctx.fillStyle = "rgba(" + col + "," + al * 0.45 + ")"; // hillock
 		ctx.beginPath();
 		ctx.moveTo(n.px + ux * R * 0.9 + qx * R * 0.3, n.py + uy * R * 0.9 + qy * R * 0.3);
 		ctx.lineTo(n.px + ux * R * 0.9 - qx * R * 0.3, n.py + uy * R * 0.9 - qy * R * 0.3);
 		ctx.lineTo(hx, hy);
 		ctx.closePath();
 		ctx.fill();
-		ctx.strokeStyle = "rgba(" + col + "," + al * 0.6 + ")";
+		ctx.strokeStyle = "rgba(" + col + "," + al * 0.32 + ")";
 		ctx.lineCap = "round";
 		ctx.lineWidth = Math.max(0.7 * dpr, R * 0.1);
 		ctx.beginPath();
@@ -2239,14 +2278,14 @@ export class BrainEngine {
 		}
 		ctx.stroke();
 		const rr = Math.max(1.1 * dpr, R * 0.14);
-		ctx.fillStyle = "rgba(" + col + ",0.35)";
+		ctx.fillStyle = "rgba(" + col + ",0.06)";
 		ctx.beginPath();
 		for (let i = 0; i < ends.length; i += 2) {
 			ctx.moveTo(ends[i] + rr * 2, ends[i + 1]);
 			ctx.arc(ends[i], ends[i + 1], rr * 2, 0, 6.2832);
 		}
 		ctx.fill();
-		ctx.fillStyle = this.boutonColor;
+		ctx.fillStyle = "rgba(" + col + "," + Math.min(0.7, al * 0.7) + ")";
 		ctx.beginPath();
 		for (let i = 0; i < ends.length; i += 2) {
 			ctx.moveTo(ends[i] + rr, ends[i + 1]);
@@ -2262,17 +2301,27 @@ export class BrainEngine {
 			if (a.off || b.off) continue;
 			const [x, y] = this.edgePoint(s.e, !s.rev, s.t);
 			const al = (1 - ((a.pd + b.pd) / 2) * 0.6) * (fn && ed[0] !== f && ed[1] !== f ? 0.3 : 1);
-			if (this.quality > 0) {
-				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.35;
-				ctx.fillStyle = s.w < 0 ? "rgb(251,113,133)" : "rgb(" + this.palRGB[a.vt] + ")";
+			const tint = s.w < 0 ? "rgb(251,113,133)" : "rgb(" + this.mutedRGB[a.vt] + ")";
+			if (this.quality > 0) { // a short tail that thins out behind the head
+				ctx.fillStyle = tint;
+				for (let k = 3; k >= 1; k--) {
+					const tt = s.t - k * 0.028;
+					if (tt <= 0) continue;
+					const [tx, ty] = this.edgePoint(s.e, !s.rev, tt);
+					ctx.globalAlpha = clamp(al, 0.1, 1) * (0.5 - k * 0.12);
+					ctx.beginPath();
+					ctx.arc(tx, ty, (1.9 - k * 0.38) * dpr, 0, 6.2832);
+					ctx.fill();
+				}
+				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.16;
 				ctx.beginPath();
-				ctx.arc(x, y, 5.5 * dpr, 0, 6.2832);
+				ctx.arc(x, y, 4.2 * dpr, 0, 6.2832);
 				ctx.fill();
 			}
-			ctx.globalAlpha = clamp(al, 0.1, 1);
-			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.labelColor;
+			ctx.globalAlpha = clamp(al, 0.1, 1) * 0.9;
+			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.quality > 0 ? tint : this.labelColor;
 			ctx.beginPath();
-			ctx.arc(x, y, 2 * dpr, 0, 6.2832);
+			ctx.arc(x, y, 1.8 * dpr, 0, 6.2832);
 			ctx.fill();
 		}
 		ctx.globalAlpha = 1;

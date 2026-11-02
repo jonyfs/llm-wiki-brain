@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { quadPoints, taperStrip, somaRadii } from "../.test-build/neuron.mjs";
-import { freeDirection } from "../.test-build/ports.mjs";
+import { axonDirection, freeDirection } from "../.test-build/ports.mjs";
 
 test("quadPoints has n+1 points that start and end where asked", () => {
 	const p = quadPoints(0, 0, 5, 10, 10, 0, 6);
@@ -51,4 +51,23 @@ test("freeDirection points away from the dendrites", () => {
 
 test("freeDirection with no dendrites still returns a unit vector", () => {
 	assert.ok(Math.abs(Math.hypot(...freeDirection([])) - 1) < 1e-9);
+});
+
+test("axonDirection leans toward the pages the cell links to", () => {
+	const den = [[0, 0, 3], [0, 0, -3], [0, 3, 0]].map((t) => ({ m: t, t, b: null }));
+	const v = axonDirection(den, [[1, 0, 0], [0.8, 0.6, 0]]);
+	assert.ok(Math.abs(Math.hypot(...v) - 1) < 1e-9);
+	assert.ok(v[0] > 0.7, "points mostly along +x, where both targets are");
+});
+
+test("axonDirection steps aside when a dendrite already sits on the target", () => {
+	const den = [[3, 0, 0]].map((t) => ({ m: t, t, b: null }));
+	const v = axonDirection(den, [[1, 0, 0]]);
+	assert.ok(v[0] < 0.95, "not on top of the dendrite");
+	assert.ok(v[0] > 0.3, "still faces its target");
+});
+
+test("axonDirection with no targets falls back to the free direction", () => {
+	const den = [[3, 0, 0], [-3, 0, 0]].map((t) => ({ m: t, t, b: null }));
+	assert.deepEqual(axonDirection(den, []), freeDirection(den));
 });
