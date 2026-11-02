@@ -13,6 +13,7 @@ import { activeChips, withoutChip, Chip } from "./chips";
 import { colorCats, sizeFactors, ColorMode, SizeMode } from "./cats";
 import { ago } from "./time";
 import { toCanvas } from "./canvasExport";
+import { isPanelShortcut } from "./keys";
 
 export const VIEW_TYPE_BRAIN = "llm-wiki-brain-view";
 
@@ -290,7 +291,7 @@ export class BrainView extends ItemView {
 		this.replayBar.hide();
 
 		this.stage = root.createDiv({ cls: "llm-wiki-brain-stage" });
-		this.canvas = this.stage.createEl("canvas", { attr: { id: "llm-wiki-brain-canvas", tabindex: "0", role: "application", "aria-label": this.t("canvas.aria"), "aria-keyshortcuts": "ArrowUp ArrowDown ArrowLeft ArrowRight Enter Escape 0 1 2 3" } });
+		this.canvas = this.stage.createEl("canvas", { attr: { id: "llm-wiki-brain-canvas", tabindex: "0", role: "application", "aria-label": this.t("canvas.aria"), "aria-keyshortcuts": "ArrowUp ArrowDown ArrowLeft ArrowRight Enter Escape F Shift+F 0 1 2 3" } });
 		this.legend = this.stage.createDiv({ cls: "llm-wiki-brain-legend" });
 		this.tooltip = this.stage.createDiv({ cls: "llm-wiki-brain-tooltip", attr: { role: "tooltip", id: "llm-wiki-brain-tooltip" } });
 		this.tooltip.hide();
@@ -299,11 +300,11 @@ export class BrainView extends ItemView {
 		this.keysCard = this.stage.createDiv({ cls: "llm-wiki-brain-card" });
 		this.keysCard.hide();
 		this.buildCards();
-		document.addEventListener("click", (e) => {
+		this.registerDomEvent(document, "click", (e: MouseEvent) => {
 			if (!this.panel?.hasClass("is-open")) return;
 			const t = e.target as Node;
 			if (this.panel.contains(t) || this.filterBtn?.contains(t)) return;
-			this.closePanel();
+			this.closePanel(false); // the click already moved focus where the user wanted it
 		});
 		this.info = root.createDiv({ cls: "llm-wiki-brain-info", attr: { "aria-live": "polite" } });
 		this.info.hide();
@@ -409,7 +410,7 @@ export class BrainView extends ItemView {
 	/** One icon button per filter, placed in the rail next to the type chips. Each toggles its filter and re-applies. */
 	private buildFilterIcons(): void {
 		const row = this.filterIcons;
-		const add = (icon: string, labelKey: StringKey, ariaKey: StringKey, fn: () => void, on: () => boolean): void => {
+		const add = (icon: string, labelKey: StringKey, ariaKey: StringKey, fn: () => void, on: () => boolean): HTMLButtonElement => {
 			const b = row.createEl("button", { cls: "llm-wiki-brain-ficon", attr: { "aria-pressed": "false", "aria-label": this.t(ariaKey), title: this.t(ariaKey) } });
 			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
 			setIcon(ic, icon);
@@ -418,6 +419,7 @@ export class BrainView extends ItemView {
 			b.addEventListener("click", (e: MouseEvent) => { e.stopPropagation(); fn(); update(); });
 			this.filterIconsMap.push({ btn: b, on });
 			update();
+			return b;
 		};
 		add("search", "search.aria", "search.aria", () => this.toggleSearch(), () => this.searchOpen);
 		add("shuffle", "filters.invert", "filters.invert", () => { this.filters.invert = !this.filters.invert; this.applyFilters(); }, () => this.filters.invert);
@@ -425,7 +427,9 @@ export class BrainView extends ItemView {
 		add("clock", "filters.recent", "filters.recent", () => { const v = !this.plugin.settings.recentRing; this.engine?.setRecent(v); void this.plugin.persist({ recentRing: v }); this.syncControls(false); }, () => this.plugin.settings.recentRing);
 		add("eye-off", "search.hide", "search.hide", () => { this.hideNonMatches = !this.hideNonMatches; this.applyFilters(); }, () => this.hideNonMatches);
 		add("eye", "filters.ghosts", "filters.ghosts", () => { const v = !this.plugin.settings.ghosts; this.engine?.setGhosts(v); void this.plugin.persist({ ghosts: v }); this.syncControls(false); }, () => this.plugin.settings.ghosts);
-		add("filter", "filters.button", "filters.button", () => this.togglePanel(), () => this.panel?.hasClass("is-open") ?? false);
+		this.filterBtn = add("filter", "filters.button", "filters.button", () => this.togglePanel(), () => this.panel?.hasClass("is-open") ?? false);
+		this.filterBtn.setAttribute("aria-expanded", "false");
+		this.filterBtn.setAttribute("aria-controls", "llm-wiki-brain-panel");
 	}
 	private toggleSearch(): void {
 		this.searchOpen = !this.searchOpen;
@@ -523,7 +527,7 @@ export class BrainView extends ItemView {
 	private buildPanel(root: HTMLElement): void {
 		this.panel = root.createDiv({
 			cls: "llm-wiki-brain-panel",
-			attr: { role: "dialog", "aria-modal": "true", "aria-label": this.t("filters.button") },
+			attr: { id: "llm-wiki-brain-panel", role: "region", "aria-label": this.t("filters.button") },
 		});
 		this.previewEl = this.panel.createDiv({ cls: "llm-wiki-brain-preview", attr: { "aria-live": "polite" } });
 		// Dialog close affordance.
@@ -554,7 +558,7 @@ export class BrainView extends ItemView {
 		this.contentEl.addEventListener("keydown", (e) => {
 			if (e.key === "Escape" && this.panel?.hasClass("is-open")) this.closePanel();
 			// F toggles the filter panel.
-			if (e.key === "f" || e.key === "F") {
+			if (isPanelShortcut(e)) { // never while typing in a field, never as Ctrl/Cmd/Alt+F
 				e.preventDefault();
 				this.togglePanel();
 			}
@@ -724,20 +728,20 @@ export class BrainView extends ItemView {
 		});
 	}
 
-	private closePanel(): void {
+	private closePanel(restoreFocus = true): void {
 		this.panel.toggleClass("is-open", false);
-		this.panel.setAttribute("aria-expanded", "false");
 		this.filterBtn?.setAttribute("aria-expanded", "false");
-		this.filterBtn?.focus();
+		this.filterBtn?.setAttribute("aria-pressed", "false");
+		if (restoreFocus) this.filterBtn?.focus();
 	}
 
 	private togglePanel(): void {
 		const open = !this.panel.hasClass("is-open");
 		this.panel.toggleClass("is-open", open);
-		this.panel.setAttribute("aria-expanded", String(open));
 		this.filterBtn?.setAttribute("aria-expanded", String(open));
+		this.filterBtn?.setAttribute("aria-pressed", String(open));
 		if (open) {
-			// Focus trap: move focus into the dialog.
+			// Move focus into the panel; Esc or the close button brings it back to the Filters button.
 			const first = this.panel.querySelector("button, select, input, [href]") as HTMLElement | null;
 			first?.focus();
 		}
@@ -804,7 +808,7 @@ export class BrainView extends ItemView {
 			["keys.select", "Click / Enter"],
 			["keys.mouse", "Drag / Wheel"],
 			["keys.legend", "L"],
-			["keys.fullscreen", "F"],
+			["keys.fullscreen", "Shift+F"],
 			["keys.help", "?"],
 			["keys.panel", "F (filter panel)"],
 		];
