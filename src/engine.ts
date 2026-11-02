@@ -3,7 +3,7 @@
    (index to page packets, ask waves, replay), persistent selection and filters. */
 import { convexHull, neighbourInDirection } from "./hull";
 import { bfsLevels, hopMs } from "./wave";
-import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
+import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { hashStr, makeDrift, rng } from "./rand";
@@ -105,6 +105,8 @@ interface Cell {
 	ashape: AxonShape | null; // the axon in the cell's own 3D frame
 	axonSeq: number; // the draw that axonG was computed for
 	axonG: AxonGeom | null;
+	refr: number; // until when the cell is recovering from a spike (time, ms)
+	inhib: number; // until when an inhibitory spike is holding it back
 	pulse: number;
 	ps: number; // pulse as drawn: rises fast, then follows `pulse` down smoothly
 	lit: number;
@@ -295,6 +297,8 @@ export class BrainEngine {
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private ew = new Float32Array(0); // per link: its strength (the stronger direction)
+	private em = new Float32Array(0); // per link: how myelinated it is (0..1)
 	private ebend = new Float64Array(0); // per link: the screen offset of its 3D bulge
 	private rotFn = (v: number[]): [number, number] => this.rotv(v);
 	private somaStops: Partial<Record<PageType, string[]>> = {};
@@ -308,6 +312,7 @@ export class BrainEngine {
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
 	private bgColor = "#0d1017";
+	private edgeFog: string[] = []; // the link colour mixed toward the background, by depth band
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
 	private camCy = 1;
@@ -401,7 +406,7 @@ export class BrainEngine {
 			if (kept && kept.length >= 3) pos = [kept[0], kept[1], kept[2]]; // where it was left last time
 			next.push({
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
-				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
+				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, refr: 0, inhib: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
 				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], rx: 0, ry: 0, rz: 0, drift: makeDrift(p.path), sc: 1, ashape: null, axonSeq: -1, axonG: null,
 			});
@@ -446,6 +451,7 @@ export class BrainEngine {
 			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
 		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 3000 ? 0 : this.nodes.length > 900 ? 1 : 2; // start where a big vault can keep up
+		this.refreshWeights();
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
 		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
@@ -945,7 +951,10 @@ export class BrainEngine {
 		// The answer follows the links the way a signal follows axons; charges add up, so a page fed by several matches fires.
 		let spikes: Spike[] = this.net ? cascade(this.net, seeds, 3, 40).filter((sp) => !this.nodes[sp.to].off) : [];
 		if (spikes.length) {
-			if (this.net) hebb(this.net, spikes);
+			if (this.net) {
+				hebb(this.net, spikes);
+				this.refreshWeights();
+			}
 			for (const sp of spikes) this.waves.push({ id: sp.to, from: sp.from, at: now + sp.tick * 420 + Math.random() * 120, fires: sp.fires });
 		} else {
 			const hits = spreadFrom(this.nodes.map((n) => n.adj), this.nodes.map((n) => n.deg), seeds.slice(0, 3), (i) => !this.nodes[i].off, 2, 4, 24);
@@ -1126,7 +1135,7 @@ export class BrainEngine {
 	}
 
 	private denScale(n: Cell): number {
-		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr));
+		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr)) * (1 - 0.18 * n.pd); // far cells have shorter branches
 	}
 
 	private denVisible(n: Cell): boolean {
@@ -1161,6 +1170,23 @@ export class BrainEngine {
 		this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 		this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
 		this.bendOf(i);
+	}
+
+	/** Reads each link's strength and myelination from the net: the mention count, grown by Hebb after an ask. */
+	private refreshWeights(): void {
+		const E = this.edges.length;
+		if (this.ew.length !== E) { this.ew = new Float32Array(E); this.em = new Float32Array(E); }
+		for (let i = 0; i < E; i++) {
+			const e = this.edges[i];
+			let w = 1, m = 0;
+			if (this.net) {
+				const fwd = this.net.out[e[0]].find((x) => x.to === e[1]), back = this.net.out[e[1]].find((x) => x.to === e[0]);
+				w = Math.max(fwd?.w ?? 0, back?.w ?? 0) || 1;
+				m = Math.max(fwd ? myelinOf(this.net, fwd) : 0, back ? myelinOf(this.net, back) : 0);
+			}
+			this.ew[i] = w;
+			this.em[i] = m;
+		}
 	}
 
 	/** Where link `i` bulges on screen, from a 3D normal to its chord that turns with the brain (see edgeBend). */
@@ -1226,6 +1252,13 @@ export class BrainEngine {
 		this.ghostAlpha = light ? 0.7 : 0.55;
 		this.light = light;
 		this.boutonColor = light ? "rgb(50,62,86)" : "rgb(176,226,218)";
+		const px = createEl("canvas");
+		px.width = px.height = 1;
+		const pc = px.getContext("2d") as CanvasRenderingContext2D;
+		pc.fillStyle = this.bgColor;
+		pc.fillRect(0, 0, 1, 1);
+		const bg = Array.from(pc.getImageData(0, 0, 1, 1).data.slice(0, 3)), ec = this.edgeRGB.split(",").map(Number);
+		this.edgeFog = [0, 1, 2].map((q) => ec.map((v, i) => Math.round(v + (bg[i] - v) * q * 0.3)).join(",")); // far links melt into the background
 		for (const t of TYPES) {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
@@ -1587,10 +1620,12 @@ export class BrainEngine {
 			if (this.net?.receive(to, s.w)) {
 				tn.pulse = 1;
 				tn.lit = this.tNow + 1800;
+				tn.refr = this.tNow + 600;
 				if (s.gen < 3) for (const o of this.net.fire(to)) this.sendSignal(to, o.to, s.gen + 1);
 				else this.net.fire(to);
 			} else {
 				tn.pulse = Math.max(tn.pulse, s.w < 0 ? 0.1 : 0.25); // charged (or held back by an inhibitory spike), not fired
+				if (s.w < 0) tn.inhib = this.tNow + 900;
 			}
 		}
 		for (let i = this.packets.length - 1; i >= 0; i--) {
@@ -1621,6 +1656,7 @@ export class BrainEngine {
 			if (this.tNow < w.at) continue;
 			const n = this.nodes[w.id];
 			n.pulse = w.fires ? 1 : 0.35;
+			if (w.fires) n.refr = this.tNow + 600;
 			n.lit = this.tNow + (w.fires ? 3200 : 900);
 			if (w.from >= 0 && !this.opts.reducedMotion) this.sendSignal(w.from, w.id, 3);
 			this.waves.splice(i, 1);
@@ -1946,22 +1982,46 @@ export class BrainEngine {
 			nb[f] = 1;
 			for (const j of fn.adj) nb[j] = 1;
 		}
-		const bk: number[][] = [[], [], []], tracts: number[] = [];
+		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
 		for (let i = 0; i < this.edges.length; i++) {
 			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
 			if (a.off || b.off) continue;
 			if (e[3]) tracts.push(i);
-			bk[this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1].push(i);
+			const wq = strengthBand(this.ew[i] || 1);
+			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
 		}
-		ctx.lineWidth = Math.max(1, dpr * 0.9);
-		const dimAll = fn || this.matchActive;
+		const dimAll = fn || this.matchActive, baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
 		for (let q = 2; q >= 0; q--) {
-			if (!bk[q].length) continue;
-			const base = 0.14 - q * 0.04;
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + "," + (dimAll ? base * 0.3 : base) + ")";
+			for (let wq = 0; wq < 3; wq++) {
+				const list = bk[q * 3 + wq];
+				if (!list.length) continue;
+				const base = (0.14 - q * 0.04) * WA[wq];
+				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
+				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
+				ctx.beginPath();
+				this.edgePath(list);
+				ctx.stroke();
+			}
+		}
+		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
+			let drawn = 0;
+			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
+			ctx.lineCap = "butt";
+			ctx.lineWidth = baseW * 2.4;
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
 			ctx.beginPath();
-			this.edgePath(bk[q]);
+			for (let i = 0; i < this.edges.length && drawn < 90; i++) {
+				if ((this.em[i] || 0) < 0.55) continue;
+				const e = this.edges[i];
+				if (nodes[e[0]].off || nodes[e[1]].off) continue;
+				const c = this.ePts(i, true);
+				ctx.moveTo(c[0], c[1]);
+				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+				drawn++;
+			}
 			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.lineCap = "round";
 		}
 		if (tracts.length) {
 			ctx.lineWidth = dpr * 1.4;
@@ -2016,6 +2076,27 @@ export class BrainEngine {
 			} else {
 				const sp = this.sprites[n.vt];
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+			}
+			if (this.quality > 0 && n.pr > 2 * dpr) {
+				const rf = clamp((n.refr - this.tNow) / 600, 0, 1);
+				const fog = clamp(n.pd * 0.3, 0, 0.3) * (dim ? 0 : 1) + rf * 0.4; // far cells melt toward the background; a cell that just fired dims and desaturates, then comes back
+				if (fog > 0.02) {
+					ctx.globalAlpha = fog * al;
+					ctx.fillStyle = this.bgColor;
+					ctx.beginPath();
+					ctx.arc(n.px, n.py, n.pr * 1.05, 0, 6.2832);
+					ctx.fill();
+				}
+				if (n.inhib > this.tNow && n.pr > 3 * dpr) { // held back by an inhibitory spike: a cold dashed ring
+					ctx.globalAlpha = clamp((n.inhib - this.tNow) / 900, 0, 1) * 0.7 * al;
+					ctx.strokeStyle = "rgb(140,175,255)";
+					ctx.lineWidth = Math.max(1, dpr * 1.1);
+					ctx.setLineDash([2.5 * dpr, 2 * dpr]);
+					ctx.beginPath();
+					ctx.arc(n.px, n.py, n.pr * 1.4 + dpr, 0, 6.2832);
+					ctx.stroke();
+					ctx.setLineDash([]);
+				}
 			}
 			ctx.globalAlpha = 1;
 			this.drawDendrites(n, al * 0.65, true);

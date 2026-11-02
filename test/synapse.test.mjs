@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Net, cascade, hebb, synapsesOf, weightOf } from "../.test-build/synapse.mjs";
+import { Net, cascade, hebb, strengthBand, synapsesOf, weightOf } from "../.test-build/synapse.mjs";
 
 const net = (n, links, o) => new Net(n, synapsesOf(links), o);
 
@@ -93,4 +93,20 @@ test("hebb strengthens used synapses, caps them, and eases idle ones back", () =
 	assert.ok(idle.w < 1.5 && idle.w > idle.base);
 	for (let i = 0; i < 10; i++) hebb(n, [{ tick: 1, from: 0, to: 1, w: 1, fires: true }]);
 	assert.equal(used.w, n.o.wMax);
+});
+
+
+test("strengthBand: one mention is weak, repeated mentions are strong", () => {
+	assert.equal(strengthBand(weightOf(1)), 0);
+	assert.equal(strengthBand(weightOf(2)), 1);
+	assert.equal(strengthBand(weightOf(4)), 2);
+	assert.equal(strengthBand(2.2), 2);
+});
+
+test("a link that fires together gets drawn stronger after Hebb", () => {
+	const net = new Net(3, synapsesOf([[0, 1, 1], [0, 2, 1], [1, 2, 1]]));
+	const before = strengthBand(net.out[0].find((s) => s.to === 1).w);
+	for (let i = 0; i < 6; i++) hebb(net, cascade(net, [0], 3, 20));
+	const after = strengthBand(net.out[0].find((s) => s.to === 1).w);
+	assert.ok(after >= before);
 });

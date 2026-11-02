@@ -27,6 +27,11 @@ export function weightOf(count: number): number {
 	return Math.min(1.6, 0.8 + 0.2 * Math.max(1, count));
 }
 
+/** Which of three bands a link's strength falls in when it is drawn: 0 weak (one mention), 1 normal, 2 strong (repeated mentions, or reinforced by Hebb). */
+export function strengthBand(w: number): 0 | 1 | 2 {
+	return w < 1.1 ? 0 : w < 1.5 ? 1 : 2;
+}
+
 export class Net {
 	readonly out: Synapse[][];
 	readonly inn: Synapse[][];
