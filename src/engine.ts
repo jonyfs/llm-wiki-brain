@@ -8,7 +8,7 @@ import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { hashStr, makeDrift, rng } from "./rand";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
-import { quadPoints, somaRadii, taperStrip } from "./neuron";
+import { arborize, denControl, MARK_OF, markPoly, quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
 
@@ -167,6 +167,9 @@ const COLORS = {
 	light: { source: "#0f766e", entity: "#b45309", concept: "#4338ca", synthesis: "#be185d" },
 };
 
+/** The type marks in unit soma space (the soma outline is drawn scaled by its radius). */
+const MARKS: Record<string, number[]> = { circle: markPoly("circle", 0.24), square: markPoly("square", 0.4), diamond: markPoly("diamond", 0.42), triangle: markPoly("triangle", 0.42) };
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 
@@ -181,7 +184,7 @@ function mix(h: string, t: number[], amt: number): string {
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
 }
 
-function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement {
+function makeSprite(color: string, glow: number, core = true, kind = "circle"): HTMLCanvasElement {
 	const S = 96;
 	const c = createEl("canvas");
 	c.width = c.height = S;
@@ -200,6 +203,14 @@ function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement
 	g.fillStyle = b;
 	g.beginPath();
 	g.arc(S / 2, S / 2, S * 0.22, 0, 6.2832);
+	g.fill();
+	const mk = markPoly(kind as never, S * 0.11); // the type mark, in a darker tone of the type colour
+	g.fillStyle = mix(color, [0, 0, 0], 0.55);
+	g.globalAlpha = 0.6;
+	g.beginPath();
+	g.moveTo(S / 2 + mk[0], S / 2 + mk[1]);
+	for (let i = 2; i < mk.length; i += 2) g.lineTo(S / 2 + mk[i], S / 2 + mk[i + 1]);
+	g.closePath();
 	g.fill();
 	return c;
 }
@@ -468,18 +479,13 @@ export class BrainEngine {
 		};
 		for (let i = 0; i < count; i++) {
 			const d = dir(), a = m[1] + r() * 0.7, b = m[2] + r() * 1.6;
-			const den: Dendrite = {
+			out.push({
 				m: [d[0] * a + jit(), d[1] * a + jit(), d[2] * a + jit()],
 				t: [d[0] * b + jit(), d[1] * b + jit(), d[2] * b + jit()],
-				b: null,
-			};
-			if (r() < m[3]) {
-				const q = dir(), l = 1.2 + r() * 1.2;
-				den.b = [den.m[0] + q[0] * l, den.m[1] + q[1] * l, den.m[2] + q[2] * l];
-			}
-			out.push(den);
+				b: null, // side branches are grown on demand (arborize), m[3] says how branchy this type is
+			});
 		}
-		if (m[4]) out.push({ m: [0.2, -m[4] * 0.55, 0], t: [0, -m[4], 0.2], b: [0.9, -m[4] * 0.8, 0.3] });
+		if (m[4]) out.push({ m: [0.2, -m[4] * 0.55, 0], t: [0, -m[4], 0.2], b: null });
 		return out;
 	}
 
@@ -1221,7 +1227,7 @@ export class BrainEngine {
 		this.light = light;
 		this.boutonColor = light ? "rgb(50,62,86)" : "rgb(176,226,218)";
 		for (const t of TYPES) {
-			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16);
+			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
 			const sg = this.ctx.createRadialGradient(-0.25, -0.3, 0.05, 0, 0, 1.25);
@@ -2173,14 +2179,17 @@ export class BrainEngine {
 		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
-		ctx.restore();
-		if (R > 7 * dpr) { // nucleus
-			ctx.globalAlpha = al * 0.35;
-			ctx.fillStyle = this.light ? "rgb(255,255,255)" : "rgb(10,70,62)";
+		if (R > 4 * dpr) { // the type mark: circle, rounded square, diamond or triangle, so the type reads without its colour
+			const mk = MARKS[MARK_OF[n.vt] ?? "circle"], st = this.somaStops[n.vt];
+			ctx.globalAlpha = al * 0.6;
+			ctx.fillStyle = this.light ? "rgb(255,255,255)" : (st ? st[2] : "#000");
 			ctx.beginPath();
-			ctx.ellipse(n.px + R * 0.1, n.py + R * 0.05, R * 0.42, R * 0.36, 0, 0, 6.2832);
+			ctx.moveTo(mk[0], mk[1]);
+			for (let i = 2; i < mk.length; i += 2) ctx.lineTo(mk[i], mk[i + 1]);
+			ctx.closePath();
 			ctx.fill();
 		}
+		ctx.restore();
 		ctx.globalAlpha = 1;
 	}
 
@@ -2189,56 +2198,41 @@ export class BrainEngine {
 		const ctx = this.ctx, dpr = this.dpr;
 		if (!this.denVisible(n)) return;
 		const k = this.denScale(n), col = this.mutedRGB[n.vt] ?? "255,255,255";
-		const real = this.quality > 1 && n.pr > 6 * dpr; // spines and branch forks only when the cell is big enough to show them
-		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1);
+		const arbor = this.quality > 1 && n.pr > 6 * dpr, deep = arbor && n.pr > 9 * dpr; // side branches only when the cell is big enough to show them
+		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1), forkP = MORPH[n.type][3];
+		const pj = (v: number[]): [number, number] => {
+			const [rx, ry] = this.rotv(v);
+			return [n.px + rx * k, n.py + ry * k];
+		};
 		for (const used of [false, true]) {
-			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], spines: number[] = [], forks: number[] = [];
+			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [];
 			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
+			const strip = (pts: number[], wa: number, wb: number) => {
+				const poly = taperStrip(pts, wa, wb);
+				ctx.moveTo(poly[0], poly[1]);
+				for (let j = 2; j < poly.length; j += 2) ctx.lineTo(poly[j], poly[j + 1]);
+				ctx.closePath();
+			};
 			for (let i = 0; i < n.den.length; i++) {
 				if ((n.port[i] ?? 0) > 0 !== used) continue;
 				const d = n.den[i];
 				if (this.rotz(d.t) < 0 !== front) continue; // branches facing away are drawn under the soma, those facing us over it
-				const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
-				const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
-				const pts = quadPoints(n.px, n.py, mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty, real ? 7 : 4);
-				const poly = taperStrip(pts, w0, w1);
-				ctx.moveTo(poly[0], poly[1]);
-				for (let j = 2; j < poly.length; j += 2) ctx.lineTo(poly[j], poly[j + 1]);
-				ctx.closePath();
-				if (real) {
-					const sl = Math.max(1.4 * dpr, n.pr * 0.22);
-					for (let j = 3; j < pts.length / 2 - 1; j += 2) { // a spine every other point, alternating sides
-						const dx = pts[j * 2 + 2] - pts[j * 2 - 2], dy = pts[j * 2 + 3] - pts[j * 2 - 1], l = Math.hypot(dx, dy) || 1;
-						const side = ((i * 7 + j) & 1) * 2 - 1;
-						spines.push(pts[j * 2], pts[j * 2 + 1], pts[j * 2] - (dy / l) * sl * side, pts[j * 2 + 1] + (dx / l) * sl * side);
-					}
-				}
+				const [tx, ty] = pj(d.t), [cx, cy] = pj(denControl(d, i));
+				strip(quadPoints(n.px, n.py, cx, cy, tx, ty, arbor ? 7 : 4), w0, w1);
 				tips.push(tx, ty);
-				if (d.b && real && !used) {
-					const [r3x, r3y] = this.rotv(d.b);
-					forks.push(mx, my, n.px + r3x * k, n.py + r3y * k);
-					tips.push(n.px + r3x * k, n.py + r3y * k);
+				if (!arbor) continue;
+				if (!d.kids) d.kids = arborize(d, i, forkP, rng(hashStr(n.path) ^ Math.imul(i + 1, 7919)));
+				for (const kid of d.kids) {
+					if (kid.lvl > 1 && !deep) continue;
+					const [ax, ay] = pj(kid.a), [kcx, kcy] = pj(kid.c), [kbx, kby] = pj(kid.b), wk = w0 * kid.wr;
+					strip(quadPoints(ax, ay, kcx, kcy, kbx, kby, 5), wk, Math.max(0.5 * dpr, wk * 0.55));
+					leaves.push(kbx, kby);
 				}
 			}
 			ctx.fill();
-			if (spines.length || forks.length) {
-				ctx.strokeStyle = "rgba(" + col + "," + a + ")";
-				ctx.lineCap = "round";
-				ctx.lineWidth = Math.max(0.6 * dpr, n.pr * 0.06);
-				ctx.beginPath();
-				for (let i = 0; i < spines.length; i += 4) {
-					ctx.moveTo(spines[i], spines[i + 1]);
-					ctx.lineTo(spines[i + 2], spines[i + 3]);
-				}
-				for (let i = 0; i < forks.length; i += 4) {
-					ctx.moveTo(forks[i], forks[i + 1]);
-					ctx.lineTo(forks[i + 2], forks[i + 3]);
-				}
-				ctx.stroke();
-			}
 			const rr = Math.max(0.9 * dpr, n.pr * 0.14) * (used ? 1.3 : 0.8);
-			if (used && real) { // the bouton: a glow, then a bright core
+			if (used && arbor) { // the bouton: a faint halo, then the core
 				ctx.fillStyle = "rgba(" + col + ",0.06)";
 				ctx.beginPath();
 				for (let i = 0; i < tips.length; i += 2) {
@@ -2252,6 +2246,11 @@ export class BrainEngine {
 			for (let i = 0; i < tips.length; i += 2) {
 				ctx.moveTo(tips[i] + rr, tips[i + 1]);
 				ctx.arc(tips[i], tips[i + 1], rr, 0, 6.2832);
+			}
+			const lr = Math.max(0.7 * dpr, n.pr * 0.06); // the ends of the side branches: small beads
+			for (let i = 0; i < leaves.length; i += 2) {
+				ctx.moveTo(leaves[i] + lr, leaves[i + 1]);
+				ctx.arc(leaves[i], leaves[i + 1], lr, 0, 6.2832);
 			}
 			ctx.fill();
 		}

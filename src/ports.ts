@@ -1,9 +1,19 @@
 /* Ports: where each link leaves a neuron. Pure geometry, testable in Node. */
 
+/** A side branch of a dendrite, in the cell's own 3D frame: where it starts on its parent, its control point and its end. `wr` is its starting width as a share of the primary's (Rall: 0.63 per level). */
+export interface Kid {
+	a: number[];
+	c: number[];
+	b: number[];
+	lvl: number;
+	wr: number;
+}
+
 export interface Den {
 	m: number[];
 	t: number[];
 	b: number[] | null;
+	kids?: Kid[]; // decorative branching, grown the first time the cell is drawn in detail; ports only ever use the primary tip `t`
 }
 
 export interface PortNode {
