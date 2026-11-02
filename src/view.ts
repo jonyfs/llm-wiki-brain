@@ -99,6 +99,9 @@ export class BrainView extends ItemView {
 	private searchPillText!: HTMLElement;
 	private searchIdle!: IdleTimer;
 	private searchHint!: HTMLElement;
+	private drawer!: HTMLElement;
+	private drawerTabs!: HTMLElement;
+	private openPanes = new Set<HTMLElement>();
 	private strip!: HTMLElement; // what the filters are doing, in words, with a way out
 	private stripText!: HTMLElement;
 	private noMatch!: HTMLElement;
@@ -362,10 +365,15 @@ export class BrainView extends ItemView {
 		this.legend = this.stage.createDiv({ cls: "llm-wiki-brain-legend" });
 		this.tooltip = this.stage.createDiv({ cls: "llm-wiki-brain-tooltip", attr: { role: "tooltip", id: "llm-wiki-brain-tooltip" } });
 		this.tooltip.hide();
-		this.helpCard = this.stage.createDiv({ cls: "llm-wiki-brain-card" });
-		this.helpCard.hide();
-		this.keysCard = this.stage.createDiv({ cls: "llm-wiki-brain-card" });
-		this.keysCard.hide();
+		// One drawer on the right holds what used to be four floating cards: Note, Lint, Syntax, Shortcuts. One at a time, so they never cover each other.
+		this.drawer = root.createDiv({ cls: "llm-wiki-brain-drawer", attr: { role: "complementary" } });
+		this.drawer.hide();
+		this.drawerTabs = this.drawer.createDiv({ cls: "llm-wiki-brain-drawer-tabs", attr: { role: "tablist" } });
+		this.info = this.drawer.createDiv({ cls: "llm-wiki-brain-info", attr: { "aria-live": "polite", role: "tabpanel" } });
+		this.lintBox = this.drawer.createDiv({ cls: "llm-wiki-brain-lint", attr: { role: "tabpanel" } });
+		this.helpCard = this.drawer.createDiv({ cls: "llm-wiki-brain-card", attr: { role: "tabpanel" } });
+		this.keysCard = this.drawer.createDiv({ cls: "llm-wiki-brain-card", attr: { role: "tabpanel" } });
+		for (const pane of [this.info, this.lintBox, this.helpCard, this.keysCard]) pane.hide();
 		this.buildCards();
 		this.registerDomEvent(document, "click", (e: MouseEvent) => {
 			if (!this.panel?.hasClass("is-open")) return;
@@ -373,10 +381,6 @@ export class BrainView extends ItemView {
 			if (this.panel.contains(t) || this.filterBtn?.contains(t)) return;
 			this.closePanel(false); // the click already moved focus where the user wanted it
 		});
-		this.info = root.createDiv({ cls: "llm-wiki-brain-info", attr: { "aria-live": "polite" } });
-		this.info.hide();
-		this.lintBox = root.createDiv({ cls: "llm-wiki-brain-lint" });
-		this.lintBox.hide();
 		this.alertBox = root.createDiv({ cls: "llm-wiki-brain-alert is-hidden", attr: { role: "alert" } });
 		this.alertText = this.alertBox.createSpan();
 		this.alertRetry = this.alertBox.createEl("button", { text: this.t("alert.retry") });
@@ -585,8 +589,47 @@ export class BrainView extends ItemView {
 	}
 
 	private flip(el: HTMLElement): void {
-		if (el.isShown()) el.hide();
-		else el.show();
+		if (el.isShown()) this.closePane(el);
+		else this.openPane(el);
+	}
+
+	private panes(): [HTMLElement, StringKey][] {
+		return [[this.info, "drawer.note"], [this.lintBox, "drawer.lint"], [this.helpCard, "drawer.syntax"], [this.keysCard, "drawer.keys"]];
+	}
+
+	/** Shows one pane in the drawer and puts away the others; each pane that has been opened keeps a tab until it is closed. */
+	private openPane(pane: HTMLElement): void {
+		this.openPanes.add(pane);
+		for (const [el] of this.panes()) { if (el === pane) el.show(); else el.hide(); }
+		this.drawer.show();
+		this.syncTabs();
+	}
+
+	private closePane(pane: HTMLElement): void {
+		this.openPanes.delete(pane);
+		pane.hide();
+		const next = this.panes().map(([el]) => el).find((el) => this.openPanes.has(el)); // fall back to another open pane
+		if (next) next.show();
+		else this.drawer.hide();
+		this.syncTabs();
+	}
+
+	private syncTabs(): void {
+		this.drawerTabs.empty();
+		for (const [el, key] of this.panes()) {
+			if (!this.openPanes.has(el)) continue;
+			const on = el.isShown();
+			const tab = this.drawerTabs.createEl("button", { text: this.t(key), attr: { role: "tab", "aria-selected": String(on) } });
+			tab.addEventListener("click", () => this.openPane(el));
+		}
+		const x = this.drawerTabs.createEl("button", { cls: "llm-wiki-brain-drawer-x", attr: { "aria-label": this.t("keys.close"), title: this.t("keys.close") } });
+		setIconSafe(x.createSpan({ cls: "llm-wiki-brain-btn-icon" }), ["x"]);
+		x.addEventListener("click", () => {
+			const cur = this.panes().map(([el]) => el).find((el) => el.isShown());
+			if (cur === this.info) this.engine?.selectPath(null); // closing the note pane also clears the selection
+			else if (cur) this.closePane(cur);
+		});
+		this.drawerTabs.toggleClass("is-single", this.openPanes.size < 2);
 	}
 
 	private field(label: string, hint?: string, parent?: HTMLElement): HTMLElement {
@@ -899,7 +942,7 @@ export class BrainView extends ItemView {
 			const b = card.createEl("button", { cls: "llm-wiki-brain-card-x", attr: { "aria-label": this.t("keys.close"), title: this.t("keys.close") } });
 			const ic = b.createSpan({ cls: "llm-wiki-brain-btn-icon" });
 			setIcon(ic, "x");
-			b.addEventListener("click", () => card.hide());
+			b.addEventListener("click", () => this.closePane(card));
 		};
 		const h = this.helpCard;
 		close(h);
@@ -1538,10 +1581,10 @@ export class BrainView extends ItemView {
 	private showInfo(info: NodeInfo | null): void {
 		this.info.empty();
 		if (!info) {
-			this.info.hide();
+			this.closePane(this.info);
 			return;
 		}
-		this.info.show();
+		this.openPane(this.info);
 		const head = this.info.createDiv({ cls: "llm-wiki-brain-info-head" });
 		head.createEl("strong", { text: info.label });
 		const close = head.createEl("button", { text: "×", attr: { "aria-label": this.t("info.clear.aria") } });
@@ -1592,7 +1635,7 @@ export class BrainView extends ItemView {
 	private showMulti(paths: string[]): void {
 		if (paths.length < 2 || !this.graph) return;
 		this.info.empty();
-		this.info.show();
+		this.openPane(this.info);
 		const set = new Set(paths);
 		const links = this.graph.links.filter(([a, b]) => set.has(a) && set.has(b)).length;
 		const orphans = paths.filter((p) => this.graph?.orphans.includes(p)).length;
@@ -1745,10 +1788,10 @@ export class BrainView extends ItemView {
 		const g = this.graph;
 		this.engine.flag(Array.from(new Set([...g.orphans, ...g.broken, ...g.untyped])));
 		this.lintBox.empty();
-		this.lintBox.show();
+		this.openPane(this.lintBox);
 		const head = this.lintBox.createDiv({ cls: "llm-wiki-brain-info-head" });
 		head.createEl("strong", { text: this.t("lint.title") });
-		head.createEl("button", { text: "×", attr: { "aria-label": this.t("lint.close.aria") } }).addEventListener("click", () => this.lintBox.hide());
+		head.createEl("button", { text: "×", attr: { "aria-label": this.t("lint.close.aria") } }).addEventListener("click", () => this.closePane(this.lintBox));
 		const section = (title: string, paths: string[]) => {
 			this.lintBox.createDiv({ cls: "llm-wiki-brain-meta", text: `${title}: ${paths.length}` });
 			const list = this.lintBox.createDiv({ cls: "llm-wiki-brain-neighbors" });
