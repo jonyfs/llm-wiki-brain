@@ -8,7 +8,7 @@ import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
 import { logOn, logOps, pagesByOp, parseLog, LogEntry } from "./logParser";
 import { suggest, toWikiLinks } from "./query";
 import { attend } from "./attention";
-import { LastView, removeView, saveView } from "./views";
+import { LastView, removeView, sanitizeFilters, saveView } from "./views";
 import { activeChips, withoutChip, Chip } from "./chips";
 import { colorCats, sizeFactors, ColorMode, SizeMode } from "./cats";
 import { ago } from "./time";
@@ -99,6 +99,7 @@ export class BrainView extends ItemView {
 	private searchPillText!: HTMLElement;
 	private searchIdle!: IdleTimer;
 	private searchHint!: HTMLElement;
+	private lastQuery = ""; // the search text the current hits belong to
 	private drawer!: HTMLElement;
 	private drawerTabs!: HTMLElement;
 	private openPanes = new Set<HTMLElement>();
@@ -214,7 +215,7 @@ export class BrainView extends ItemView {
 	}
 
 	async setState(state: ViewState, result: Parameters<ItemView["setState"]>[1]): Promise<void> {
-		if (state?.filters) this.filters = { ...DEFAULT_FILTERS, ...state.filters, hidden: Array.isArray(state.filters.hidden) ? state.filters.hidden : [] };
+		if (state?.filters) this.filters = { ...DEFAULT_FILTERS, ...(sanitizeFilters(state.filters as Record<string, unknown>, DEFAULT_FILTERS as unknown as Record<string, unknown>) as Partial<Filters>), hidden: Array.isArray(state.filters.hidden) ? state.filters.hidden.filter((t) => (TYPES as readonly string[]).includes(t)) : [] };
 		if (state && typeof state === "object") {
 			this.neighborhood = typeof state.hood === "string" ? state.hood : null;
 			this.extraQuery = typeof state.extra === "string" ? state.extra : "";
@@ -540,7 +541,7 @@ export class BrainView extends ItemView {
 				e.preventDefault();
 				if (e.ctrlKey || e.metaKey) this.applySearch(true);
 				else {
-					if (!this.hits.length) this.applySearch(false);
+					if (!this.hits.length || this.search.value.trim() !== this.lastQuery) this.applySearch(false); // the 160 ms debounce may not have run yet
 					if (this.hits.length) this.stepHit(e.shiftKey ? -1 : 1);
 				}
 			}
@@ -611,11 +612,13 @@ export class BrainView extends ItemView {
 	}
 
 	private closePane(pane: HTMLElement): void {
-		this.openPanes.delete(pane);
+		if (!this.openPanes.delete(pane)) return; // it was not open: nothing to put away, and nothing else to bring forward
 		pane.hide();
-		const next = this.panes().map(([el]) => el).find((el) => this.openPanes.has(el)); // fall back to another open pane
-		if (next) next.show();
-		else this.drawer.hide();
+		const others = this.panes().map(([el]) => el).filter((el) => this.openPanes.has(el));
+		if (!others.some((el) => el.isShown())) { // only when no pane is left showing, bring another one forward
+			if (others.length) others[0].show();
+			else this.drawer.hide();
+		}
 		this.syncTabs();
 	}
 
@@ -994,7 +997,7 @@ export class BrainView extends ItemView {
 			row.createSpan({ text: this.t(key) });
 		}
 		k.createEl("button", { text: this.t("tour.again") }).addEventListener("click", () => {
-			k.hide();
+			this.closePane(k);
 			this.showTour();
 		});
 	}
@@ -1092,7 +1095,7 @@ export class BrainView extends ItemView {
 
 	/** Clear every filter, the isolated neighbourhood or selection, and the search. */
 	clearAll(confirm = true): void {
-		if (confirm && this.currentChips().length || this.search.value.trim() || this.neighborhood || this.isolate) {
+		if (confirm && (this.currentChips().length || this.search.value.trim() || this.neighborhood || this.isolate)) {
 			if (!window.confirm(this.t("filters.clearConfirm"))) return;
 		}
 		this.filters = { ...DEFAULT_FILTERS, hidden: [] };
@@ -1210,7 +1213,6 @@ export class BrainView extends ItemView {
 		if (none) this.tip.setText(g.rootMissing ? this.t("tip.rootMissing", { root: this.plugin.settings.wikiRoot }) : this.t("tip.noPages"));
 	}
 
-	/** Camera and selection saved with the view, applied once the graph is there. */
 	/** The state that the next fresh view starts from. Saved a moment after the last change. */
 	private saveLast(): void {
 		if (this.restoring) return;
@@ -1221,7 +1223,7 @@ export class BrainView extends ItemView {
 	}
 
 	private restoreLast(v: LastView): void {
-		this.filters = { ...DEFAULT_FILTERS, ...(v.filters as Partial<Filters>), hidden: Array.isArray(v.filters.hidden) ? (v.filters.hidden as PageType[]) : [] };
+		this.filters = { ...DEFAULT_FILTERS, ...(sanitizeFilters(v.filters, DEFAULT_FILTERS as unknown as Record<string, unknown>) as Partial<Filters>), hidden: Array.isArray(v.filters.hidden) ? (v.filters.hidden as PageType[]).filter((t) => (TYPES as readonly string[]).includes(t)) : [] };
 		this.extraQuery = v.extra;
 		this.hideNonMatches = v.hide;
 		this.colorMode = (["type", "folder", "tag", "age", "degree"] as ColorMode[]).includes(v.color as ColorMode) ? (v.color as ColorMode) : "type";
@@ -1432,6 +1434,7 @@ export class BrainView extends ItemView {
 	private applySearch(ask: boolean): void {
 		if (!this.engine || !this.graph) return;
 		const q = this.search.value.trim();
+		this.lastQuery = q;
 		this.syncClear();
 		this.saveLast();
 		if (!q) {

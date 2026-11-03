@@ -297,6 +297,8 @@ export class BrainEngine {
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private ephi = new Float32Array(0); // per link: which way around its chord it bulges, from its two page paths (stable when other links come and go)
+	private myel: number[] = []; // the links worth a sheath, strongest first
 	private ew = new Float32Array(0); // per link: its strength (the stronger direction)
 	private em = new Float32Array(0); // per link: how myelinated it is (0..1)
 	private ebend = new Float64Array(0); // per link: the screen offset of its 3D bulge
@@ -451,6 +453,7 @@ export class BrainEngine {
 			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
 		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 3000 ? 0 : this.nodes.length > 900 ? 1 : 2; // start where a big vault can keep up
+		this.ew = new Float32Array(0); // a new graph: refreshWeights sizes everything again
 		this.refreshWeights();
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
@@ -1138,6 +1141,11 @@ export class BrainEngine {
 		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr)) * (1 - 0.18 * n.pd); // far cells have shorter branches
 	}
 
+	/** The axon is drawn only for the big cells of a high-quality frame: the links must start where it ends, or at the soma otherwise. */
+	private axonShown(n: Cell): boolean {
+		return this.fullFlags[n.id] === 1 && this.quality > 1 && n.pr > 6 * this.dpr;
+	}
+
 	private denVisible(n: Cell): boolean {
 		return this.quality > 0 && this.fullFlags[n.id] === 1 && n.pr > 2.2 * this.dpr;
 	}
@@ -1145,8 +1153,13 @@ export class BrainEngine {
 	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
 	private anchorOf(n: Cell, di: number, out: Float64Array, o: number): void {
 		if (di < 0) {
-			const tip = this.axonGeom(n).tips[-1 - di] ?? this.axonGeom(n).tips[0];
-			out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
+			if (this.axonShown(n)) {
+				const g = this.axonGeom(n), tip = g.tips[-1 - di] ?? g.tips[0];
+				out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
+				return;
+			}
+			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy) || 1; // no axon drawn (a sprite, or low quality): the link leaves the soma edge
+			out[o] = n.px + (vx / l) * n.pr * 0.9; out[o + 1] = n.py + (vy / l) * n.pr * 0.9; out[o + 2] = vx / l; out[o + 3] = vy / l;
 			return;
 		}
 		const d = n.den[di];
@@ -1175,7 +1188,12 @@ export class BrainEngine {
 	/** Reads each link's strength and myelination from the net: the mention count, grown by Hebb after an ask. */
 	private refreshWeights(): void {
 		const E = this.edges.length;
-		if (this.ew.length !== E) { this.ew = new Float32Array(E); this.em = new Float32Array(E); }
+		if (this.ew.length !== E || this.ephi.length !== E) { // a new graph (setGraph empties ew): size the arrays and fix each link's bulge direction
+			this.ew = new Float32Array(E);
+			this.em = new Float32Array(E);
+			this.ephi = new Float32Array(E);
+			for (let i = 0; i < E; i++) this.ephi[i] = phiOf(hashStr(this.nodes[this.edges[i][0]].path + ">" + this.nodes[this.edges[i][1]].path));
+		}
 		for (let i = 0; i < E; i++) {
 			const e = this.edges[i];
 			let w = 1, m = 0;
@@ -1187,13 +1205,17 @@ export class BrainEngine {
 			this.ew[i] = w;
 			this.em[i] = m;
 		}
+		this.myel = [];
+		for (let i = 0; i < E; i++) if (this.em[i] >= 0.55) this.myel.push(i);
+		this.myel.sort((x, y) => this.em[y] - this.em[x]);
+		this.myel.length = Math.min(this.myel.length, 90);
 	}
 
 	/** Where link `i` bulges on screen, from a 3D normal to its chord that turns with the brain (see edgeBend). */
 	private bendOf(i: number): void {
 		if (this.ebend.length < this.edges.length * 2) this.ebend = new Float64Array(this.edges.length * 2);
 		const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
-		const [bx, by] = edgeBend(b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, phiOf(i), e[2], this.rotFn, (a.sc + b.sc) / 2);
+		const [bx, by] = edgeBend(b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, this.ephi[i], e[2], this.rotFn, (a.sc + b.sc) / 2);
 		this.ebend[i * 2] = bx;
 		this.ebend[i * 2 + 1] = by;
 	}
@@ -2004,24 +2026,22 @@ export class BrainEngine {
 			}
 		}
 		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
-			let drawn = 0;
+			const cap = ctx.lineCap;
 			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
 			ctx.lineCap = "butt";
 			ctx.lineWidth = baseW * 2.4;
 			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
 			ctx.beginPath();
-			for (let i = 0; i < this.edges.length && drawn < 90; i++) {
-				if ((this.em[i] || 0) < 0.55) continue;
+			for (const i of this.myel) {
 				const e = this.edges[i];
 				if (nodes[e[0]].off || nodes[e[1]].off) continue;
 				const c = this.ePts(i, true);
 				ctx.moveTo(c[0], c[1]);
 				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
-				drawn++;
 			}
 			ctx.stroke();
 			ctx.setLineDash([]);
-			ctx.lineCap = "round";
+			ctx.lineCap = cap;
 		}
 		if (tracts.length) {
 			ctx.lineWidth = dpr * 1.4;
@@ -2064,7 +2084,7 @@ export class BrainEngine {
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
 			const al = clamp((1 - n.pd * 0.62) * (dim ? 0.16 : 1), 0.05, 1), size = n.pr * 4.55;
 			ctx.globalAlpha = 1;
-			const axonFront = this.rotz(n.axon) < 0, axonOn = full[n.id] === 1 && this.quality > 1 && n.pr > 6 * dpr;
+			const axonFront = this.rotz(n.axon) < 0, axonOn = this.axonShown(n);
 			this.drawDendrites(n, al * 0.65, false);
 			if (axonOn && !axonFront) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
@@ -2337,8 +2357,7 @@ export class BrainEngine {
 		}
 	}
 
-	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
-	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
+	/** The axon on screen, projected from its 3D shape: hillock, trunk and AXON_TIPS terminals as [x, y, dirX, dirY]. Computed once per draw; never null (it shortens, it does not vanish, when it points at the viewer). */
 	private axonGeom(n: Cell): AxonGeom {
 		if (n.axonSeq === this.drawSeq && n.axonG) return n.axonG; // asked once per draw: the links and the neuron share it
 		n.axonSeq = this.drawSeq;

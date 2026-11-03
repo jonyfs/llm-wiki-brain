@@ -60,3 +60,14 @@ export function saveView(list: SavedView[], view: SavedView): SavedView[] {
 export function removeView(list: SavedView[], name: string): SavedView[] {
 	return list.filter((v) => v.name !== name);
 }
+
+/** Keeps only the keys that exist in `defaults`, and only when the value has the same type (an array stays an array). Whatever else was stored is dropped. */
+export function sanitizeFilters(raw: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const k of Object.keys(defaults)) {
+		const v = raw?.[k], d = defaults[k];
+		if (v === undefined) continue;
+		if (Array.isArray(d) ? Array.isArray(v) : typeof v === typeof d && !(typeof v === "number" && !Number.isFinite(v))) out[k] = v;
+	}
+	return out;
+}

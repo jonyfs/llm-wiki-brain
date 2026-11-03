@@ -51,3 +51,13 @@ test("cleanLastView caps long text and defaults the rest", () => {
 	assert.equal(v.size, "same");
 	assert.equal(v.extra, "");
 });
+
+import { sanitizeFilters } from "../.test-build/views.mjs";
+
+test("sanitizeFilters keeps well-typed known keys and drops the rest", () => {
+	const defaults = { folder: "", minDeg: 0, orphansOnly: false, hidden: [] };
+	assert.deepEqual(sanitizeFilters({ folder: "wiki/a", minDeg: 3, orphansOnly: true, hidden: ["entity"], extra: 1 }, defaults), { folder: "wiki/a", minDeg: 3, orphansOnly: true, hidden: ["entity"] });
+	assert.deepEqual(sanitizeFilters({ folder: 5, minDeg: "3", orphansOnly: "yes", hidden: "x" }, defaults), {}, "wrong types are dropped");
+	assert.deepEqual(sanitizeFilters({ minDeg: NaN }, defaults), {}, "not a finite number");
+	assert.deepEqual(sanitizeFilters(null, defaults), {});
+});
