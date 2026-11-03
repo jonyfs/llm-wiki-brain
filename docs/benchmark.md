@@ -108,4 +108,4 @@ Harness page, 350 nodes, automatic rotation, 180 consecutive animation frames af
 | main (0.14.0 + #33 not applied) | 60.4 ms | 71.1 ms | 16.1 fps |
 | #32 (whole visual set) | 61.3 ms | 79.2 ms | 15.4 fps |
 
-About 1.5% on the median and 11% on the p95: on a real GPU the extra detail is close to free, and the frame is bound by the canvas 2D work on the CPU side either way. Only 350 nodes were measured on the GPU; a 1,200-node run did not finish inside the time limit.
+About 1.5% on the median and 11% on the p95: on a real GPU the extra detail is close to free, and the frame is bound by the canvas 2D work on the CPU side either way. A second run at 1,200 nodes (90 frames, the harness keeps quality at 2): main 200.5 ms median, 279.9 ms p95, 4.7 fps; #32 200.3 ms median, 250.1 ms p95, 4.8 fps. The two are equal at that size, where the frame is dominated by the number of cells and links, not by the cloud detail. One machine, one GPU; the harness runs the real engine on a synthetic vault, not Obsidian itself.
