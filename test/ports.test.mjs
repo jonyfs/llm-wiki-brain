@@ -103,3 +103,16 @@ test("each axon terminal serves the page it points toward", () => {
 	assert.equal(new Set(tips).size, 3, "three targets in three directions, three different terminals");
 	assert.ok(tips.every((t) => t < 0 && t >= -3));
 });
+
+import { edgeBendInto, perpendicularInto } from "../.test-build/ports.mjs";
+
+test("the allocation-free variants give the same numbers as the ones that return values", () => {
+	const o = [0, 0, 0];
+	perpendicularInto(o, 0, 0.6, 0.8, 1.3);
+	assert.deepEqual(o, perpendicular([0, 0.6, 0.8], 1.3));
+	const out = new Float64Array(4);
+	edgeBendInto(out, 2, 80, 20, 30, 0.9, 0.08, (x, y, z, buf, k) => { const r = cam(0.7)([x, y, z]); buf[k] = r[0]; buf[k + 1] = r[1]; }, 1.5);
+	const ref = edgeBend(80, 20, 30, 0.9, 0.08, cam(0.7), 1.5);
+	assert.ok(Math.abs(out[2] - ref[0]) < 1e-12 && Math.abs(out[3] - ref[1]) < 1e-12);
+	assert.equal(out[0], 0, "only its own slot is written");
+});

@@ -8,7 +8,7 @@ import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { hashStr, makeDrift, rng } from "./rand";
 import { settleAlpha } from "./layout";
-import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
+import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBendInto, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
 import { arborize, denControl, MARK_OF, markPoly, quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
@@ -310,7 +310,14 @@ export class BrainEngine {
 	private ew = new Float32Array(0); // per link: its strength (the stronger direction)
 	private em = new Float32Array(0); // per link: how myelinated it is (0..1)
 	private ebend = new Float64Array(0); // per link: the screen offset of its 3D bulge
-	private rotFn = (v: number[]): [number, number] => this.rotv(v);
+	/** The camera rotation of a direction, written into out[o], out[o + 1]: the allocation-free sibling of rotv. */
+	private rotInto = (x: number, y: number, z: number, out: Float64Array, o: number): void => {
+		const x1 = x * this.camCy + z * this.camSy, z1 = -x * this.camSy + z * this.camCy;
+		out[o] = x1;
+		out[o + 1] = y * this.camCp - z1 * this.camSp;
+	};
+	private t4 = new Float64Array(4); // scratch
+	private aseq = new Uint32Array(0); // per link: the draw its anchors were computed for
 	private somaStops: Partial<Record<PageType, string[]>> = {};
 	private somaGrad: Partial<Record<PageType, CanvasGradient>> = {}; // in unit space: one gradient per type, moved and scaled with the transform
 	private boutonColor = "rgb(230,255,251)";
@@ -1187,6 +1194,8 @@ export class BrainEngine {
 	/** Anchors of one link only (the large-graph path draws most links as straight lines and needs curves for few). */
 	private anchorEdge(i: number): void {
 		if (this.anc.length < this.edges.length * 8) this.anc = new Float64Array(this.edges.length * 8);
+		if (this.aseq.length < this.edges.length) this.aseq = new Uint32Array(this.edges.length);
+		this.aseq[i] = this.drawSeq;
 		const e = this.edges[i];
 		this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 		this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
@@ -1223,24 +1232,25 @@ export class BrainEngine {
 	private bendOf(i: number): void {
 		if (this.ebend.length < this.edges.length * 2) this.ebend = new Float64Array(this.edges.length * 2);
 		const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
-		const [bx, by] = edgeBend(b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, this.ephi[i], e[2], this.rotFn, (a.sc + b.sc) / 2);
-		this.ebend[i * 2] = bx;
-		this.ebend[i * 2 + 1] = by;
+		edgeBendInto(this.ebend, i * 2, b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, this.ephi[i], e[2], this.rotInto, (a.sc + b.sc) / 2);
 	}
 
 	private computeAnchors(): void {
 		if (this.anc.length < this.edges.length * 8) this.anc = new Float64Array(this.edges.length * 8);
+		if (this.aseq.length < this.edges.length) this.aseq = new Uint32Array(this.edges.length);
 		for (let i = 0; i < this.edges.length; i++) {
 			const e = this.edges[i];
+			if (this.nodes[e[0]].off || this.nodes[e[1]].off) continue; // not drawn: ePts computes it on demand if something asks
 			this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 			this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
 			this.bendOf(i);
+			this.aseq[i] = this.drawSeq;
 		}
 	}
 
 	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
 	private ePts(ei: number, fwd: boolean): number[] {
-		if (this.simpleEdges) this.anchorEdge(ei);
+		if (this.simpleEdges || this.aseq[ei] !== this.drawSeq) this.anchorEdge(ei);
 		return edgeCurve(this.anc, ei * 8, fwd, this.ebend[ei * 2], this.ebend[ei * 2 + 1]);
 	}
 
@@ -2374,30 +2384,40 @@ export class BrainEngine {
 		return g;
 	}
 
-	/** The axon, projected: its 3D points (in soma radii around the centre) go through the same rotation as the dendrites, so it turns with the brain. */
+	/** The axon, projected: its 3D points (in soma radii around the centre) go through the same rotation as the dendrites, so it turns with the brain. Reuses the cell's geometry object: nothing is allocated per draw. */
 	private computeAxon(n: Cell): AxonGeom {
-		const R = n.pr, sh = n.ashape ?? (n.ashape = axonShape(n.axon, n.id));
-		const pj = (v: number[]): [number, number] => {
-			const [rx, ry] = this.rotv(v);
-			return [n.px + rx * R, n.py + ry * R];
-		};
-		const [hx, hy] = pj(sh.h), [cx, cy] = pj(sh.c), [ex, ey] = pj(sh.e), [bx, by] = pj(sh.b);
-		let ux = ex - hx, uy = ey - hy, L = Math.hypot(ux, uy);
+		const R = n.pr, sh = n.ashape ?? (n.ashape = axonShape(n.axon, n.id)), t = this.t4, rot = this.rotInto;
+		const g = n.axonG ?? (n.axonG = { hx: 0, hy: 0, ux: 1, uy: 0, qx: 0, qy: 1, L: 0, cx: 0, cy: 0, bx: 0, by: 0, tips: [[0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 1, 0]] });
+		rot(sh.h[0], sh.h[1], sh.h[2], t, 0);
+		g.hx = n.px + t[0] * R; g.hy = n.py + t[1] * R;
+		rot(sh.c[0], sh.c[1], sh.c[2], t, 0);
+		g.cx = n.px + t[0] * R; g.cy = n.py + t[1] * R;
+		rot(sh.b[0], sh.b[1], sh.b[2], t, 0);
+		g.bx = n.px + t[0] * R; g.by = n.py + t[1] * R;
+		rot(sh.e[0], sh.e[1], sh.e[2], t, 0);
+		const ex = n.px + t[0] * R, ey = n.py + t[1] * R;
+		let ux = ex - g.hx, uy = ey - g.hy, L = Math.hypot(ux, uy);
 		if (L < 1e-3) { // pointing straight at the viewer: the trunk is a dot; keep a direction for the cone
-			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
-			ux = l > 1e-3 ? vx / l : 1;
-			uy = l > 1e-3 ? vy / l : 0;
+			rot(n.axon[0], n.axon[1], n.axon[2], t, 0);
+			const l = Math.hypot(t[0], t[1]);
+			ux = l > 1e-3 ? t[0] / l : 1;
+			uy = l > 1e-3 ? t[1] / l : 0;
 			L = 0;
 		} else {
 			ux /= L;
 			uy /= L;
 		}
-		const tips: number[][] = [];
-		for (let i = 0; i < sh.tips.length; i++) {
-			const [tx, ty] = pj(sh.tips[i]), [dx, dy] = this.rotv(sh.dirs[i]), dl = Math.hypot(dx, dy);
-			tips.push([tx, ty, dl > 1e-3 ? dx / dl : ux, dl > 1e-3 ? dy / dl : uy]);
+		g.ux = ux; g.uy = uy; g.qx = -uy; g.qy = ux; g.L = L;
+		for (let i = 0; i < 3; i++) {
+			const tip = g.tips[i], p = sh.tips[i], d = sh.dirs[i];
+			rot(p[0], p[1], p[2], t, 0);
+			tip[0] = n.px + t[0] * R; tip[1] = n.py + t[1] * R;
+			rot(d[0], d[1], d[2], t, 0);
+			const dl = Math.hypot(t[0], t[1]);
+			tip[2] = dl > 1e-3 ? t[0] / dl : ux;
+			tip[3] = dl > 1e-3 ? t[1] / dl : uy;
 		}
-		return { hx, hy, ux, uy, qx: -uy, qy: ux, L, cx, cy, bx, by, tips };
+		return g;
 	}
 
 	private drawAxon(n: Cell, al: number): void {
