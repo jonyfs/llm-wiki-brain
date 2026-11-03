@@ -152,7 +152,7 @@ English (default), Portuguese (Brazil), Spanish and French. The plugin follows O
 
 ## Performance
 
-Canvas 2D, no WebGL, no worker, no network, no telemetry, no dependencies. Measured on a synthetic vault (see [docs/benchmark.md](docs/benchmark.md)): at 10,000 pages a frame takes about 25 to 33 ms and a physics step 55 to 70 ms. It stays smooth by drawing full neurons only for the biggest ones on screen, links as straight lines past 3,500, and by lowering detail when frames get slow (Neuron detail: Auto). The view pauses when it is hidden. Neuron positions are saved, so the brain does not re-settle on every start. It works on desktop and mobile (touch: drag, pinch).
+Canvas 2D, no WebGL, no worker, no network, no telemetry, no dependencies. Measured on a synthetic vault (see [docs/benchmark.md](docs/benchmark.md)): at 10,000 pages a physics step takes 55 to 70 ms; a frame took 25 to 33 ms on the author's machine before 0.11.0, and 0.11.0 draws more detail (full neurons for the biggest cells at any vault size), so expect more per frame; re-measure on yours. It stays smooth by drawing full neurons only for the biggest ones on screen, links as straight lines past 3,500, and by lowering detail when frames get slow (Neuron detail: Auto). The view pauses when it is hidden. Neuron positions are saved, so the brain does not re-settle on every start. It works on desktop and mobile (touch: drag, pinch).
 
 ## Install
 

@@ -900,6 +900,7 @@ export class BrainView extends ItemView {
 		this.filterBtn?.setAttribute("aria-pressed", "false");
 		if (restoreFocus) this.filterBtn?.focus();
 		this.syncSearchUI();
+		this.syncStrip(this.currentChips().length);
 	}
 
 	private togglePanel(): void {
@@ -908,6 +909,7 @@ export class BrainView extends ItemView {
 		this.filterBtn?.setAttribute("aria-expanded", String(open));
 		this.filterBtn?.setAttribute("aria-pressed", String(open));
 		this.syncSearchUI(); // the panel lives in the overlay: keep it on screen while open
+		this.syncStrip(this.currentChips().length);
 		if (open) {
 			// Move focus into the panel; Esc or the close button brings it back to the Filters button.
 			const first = this.panel.querySelector("button, select, input, [href]") as HTMLElement | null;
@@ -1362,7 +1364,7 @@ export class BrainView extends ItemView {
 		const s = this.engine?.stats();
 		if (!s) return;
 		const active = count > 0 || !!this.search.value.trim() || !!this.neighborhood || !!this.isolate;
-		this.strip.toggleClass("is-hidden", !active);
+		this.strip.toggleClass("is-hidden", !active || !!this.panel?.hasClass("is-open")); // the open panel has its own "Showing N of M" line
 		if (active) this.stripText.setText(this.t("filters.strip", { visible: s.visible, total: s.nodes, n: count }));
 		const none = active && s.nodes > 0 && s.visible === 0;
 		this.noMatch.toggleClass("is-hidden", !none);

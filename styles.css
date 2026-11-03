@@ -1975,3 +1975,8 @@
 .llm-wiki-brain-agedate {
 	flex: 1 1 8em;
 }
+
+/* The status line floats over the bottom of the rail: leave room so the last control can be scrolled clear of it. */
+.llm-wiki-brain-rail {
+	padding-bottom: 44px;
+}
