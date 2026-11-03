@@ -348,6 +348,7 @@ export class BrainEngine {
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
 	private cloudFog = 0.45; // how much far puffs fade (0 none, 1 vanish)
+	private linkLayers: ({ cv: HTMLCanvasElement; key: string } | undefined)[] = []; // cached base links for a settled, still brain with thousands of links: [not focused, focused]
 	private cloudKey = ""; // what the cloud bitmap was last painted for; while it is unchanged the bitmap is reused
 	private camCy = 1;
 	private camSy = 0;
@@ -2014,6 +2015,57 @@ export class BrainEngine {
 		ctx.fillText(label, cx / pts.length, y);
 	}
 
+	/** The base links of the brain (every link, in depth and strength bands, plus myelin and tracts), drawn on this.ctx. */
+	private paintLinks(dimAll: boolean): void {
+		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
+		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
+		for (let i = 0; i < this.edges.length; i++) {
+			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
+			if (a.off || b.off) continue;
+			if (e[3]) tracts.push(i);
+			const wq = strengthBand(this.ew[i] || 1);
+			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
+		}
+		const baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
+		for (let q = 2; q >= 0; q--) {
+			for (let wq = 0; wq < 3; wq++) {
+				const list = bk[q * 3 + wq];
+				if (!list.length) continue;
+				const base = (0.14 - q * 0.04) * WA[wq];
+				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
+				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
+				ctx.beginPath();
+				this.edgePath(list);
+				ctx.stroke();
+			}
+		}
+		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
+			const cap = ctx.lineCap;
+			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
+			ctx.lineCap = "butt";
+			ctx.lineWidth = baseW * 2.4;
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
+			ctx.beginPath();
+			for (const i of this.myel) {
+				const e = this.edges[i];
+				if (nodes[e[0]].off || nodes[e[1]].off) continue;
+				const c = this.ePts(i, true);
+				ctx.moveTo(c[0], c[1]);
+				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+			}
+			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.lineCap = cap;
+		}
+		if (tracts.length) {
+			ctx.lineWidth = dpr * 1.4;
+			ctx.strokeStyle = "rgba(" + this.mutedRGB.entity + "," + (dimAll ? 0.06 : 0.14) + ")";
+			ctx.beginPath();
+			this.edgePath(tracts);
+			ctx.stroke();
+		}
+	}
+
 	private draw(): void {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
 		this.drawSeq++;
@@ -2112,51 +2164,31 @@ export class BrainEngine {
 			nb[f] = 1;
 			for (const j of fn.adj) nb[j] = 1;
 		}
-		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
-		for (let i = 0; i < this.edges.length; i++) {
-			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
-			if (a.off || b.off) continue;
-			if (e[3]) tracts.push(i);
-			const wq = strengthBand(this.ew[i] || 1);
-			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
-		}
-		const dimAll = fn || this.matchActive, baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
-		for (let q = 2; q >= 0; q--) {
-			for (let wq = 0; wq < 3; wq++) {
-				const list = bk[q * 3 + wq];
-				if (!list.length) continue;
-				const base = (0.14 - q * 0.04) * WA[wq];
-				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
-				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
-				ctx.beginPath();
-				this.edgePath(list);
-				ctx.stroke();
+		const dimAll = !!(fn || this.matchActive);
+		// With thousands of links the straight-line pass is most of the frame. While nothing moves (no drift, layout settled) it is
+		// the same picture every frame, so it is kept in a layer per state (focused or not) and redrawn only when the view changes.
+		if (this.simpleEdges && this.alpha < 0.02 && !this.drifting()) {
+			let ofs = 0, ews = 0;
+			for (let i = 0; i < nodes.length; i++) if (nodes[i].off) ofs += i + 1;
+			for (let i = 0; i < this.ew.length; i++) ews += this.ew[i];
+			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, this.W, this.H, this.quality, nodes.length, this.edges.length, ofs, ews.toFixed(3), dpr].join();
+			const li = dimAll ? 1 : 0;
+			let L = this.linkLayers[li];
+			if (!L) L = this.linkLayers[li] = { cv: createEl("canvas"), key: "" };
+			if (L.key !== key) {
+				if (L.cv.width !== this.W || L.cv.height !== this.H) { L.cv.width = this.W; L.cv.height = this.H; }
+				const real = this.ctx, lc = L.cv.getContext("2d") as CanvasRenderingContext2D;
+				lc.clearRect(0, 0, this.W, this.H);
+				lc.lineCap = real.lineCap;
+				lc.lineJoin = real.lineJoin;
+				this.ctx = lc;
+				try { this.paintLinks(dimAll); } finally { this.ctx = real; }
+				L.key = key;
 			}
-		}
-		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
-			const cap = ctx.lineCap;
-			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
-			ctx.lineCap = "butt";
-			ctx.lineWidth = baseW * 2.4;
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
-			ctx.beginPath();
-			for (const i of this.myel) {
-				const e = this.edges[i];
-				if (nodes[e[0]].off || nodes[e[1]].off) continue;
-				const c = this.ePts(i, true);
-				ctx.moveTo(c[0], c[1]);
-				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
-			}
-			ctx.stroke();
-			ctx.setLineDash([]);
-			ctx.lineCap = cap;
-		}
-		if (tracts.length) {
-			ctx.lineWidth = dpr * 1.4;
-			ctx.strokeStyle = "rgba(" + this.mutedRGB.entity + "," + (dimAll ? 0.06 : 0.14) + ")";
-			ctx.beginPath();
-			this.edgePath(tracts);
-			ctx.stroke();
+			ctx.drawImage(L.cv, 0, 0);
+		} else {
+			this.linkLayers = [];
+			this.paintLinks(dimAll);
 		}
 		if (fn) {
 			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.55)";
