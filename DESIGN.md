@@ -37,6 +37,7 @@ Type colours (also the legend):
 
 ## Neuron
 
+- Soma shading: a radial shade darkens the side away from the light; a firing cell flashes toward white (up to 40%) with its pulse; the selected cell casts a soft shadow below.
 - Soma: an outline pulled toward its main dendrites (22 points), filled with one gradient per type; light from the top left of the screen.
 - Dendrites: tapered strips, bowed in 3D. Big cells at high quality grow a tree of side branches, up to three levels, each child 63% as thick as its parent (Rall), at most 9 per primary, seeded by the page path. Ports attach to the primary tips only. No spines, no nucleus.
 - Axon: hillock, a trunk that leans to one side, three terminals, all 3D points around the soma; each terminal serves the link it points toward.
@@ -49,6 +50,7 @@ Type colours (also the legend):
 |---|---|
 | Spike | eases in and out of each link (60 to 100% speed), a three-dot tail, speed follows a smooth saltatory wave on myelinated links |
 | Pulse | rises fast (a few frames), decays exponentially (`exp(-0.045 dt)`); the radius swells moderately, not in a jump |
+| Breathing | each cell's radius swells 1.8% on a 6 s cycle, phase from its path; the cloud swells 5% on an 8 s cycle; both stop with reduced motion or above 2500 nodes |
 | Refractory | a cell that fired dims toward the background for 600 ms |
 | Inhibition | a dashed cold ring for 900 ms |
 | Drift | each cell wanders 1.5 to 3 world units, 12 to 25 s per axis, from its path; render-only |

@@ -326,6 +326,7 @@ export class BrainEngine {
 	private t4 = new Float64Array(4); // scratch
 	private aseq = new Uint32Array(0); // per link: the draw its anchors were computed for
 	private somaStops: Partial<Record<PageType, string[]>> = {};
+	private somaShade: CanvasGradient | null = null; // the dark side of every soma (away from the light), in unit space
 	private somaGrad: Partial<Record<PageType, CanvasGradient>> = {}; // in unit space: one gradient per type, moved and scaled with the transform
 	private boutonColor = "rgb(230,255,251)";
 	private light = false;
@@ -1315,6 +1316,10 @@ export class BrainEngine {
 		pc.fillRect(0, 0, 1, 1);
 		const bg = Array.from(pc.getImageData(0, 0, 1, 1).data.slice(0, 3)), ec = this.edgeRGB.split(",").map(Number);
 		this.edgeFog = [0, 1, 2].map((q) => ec.map((v, i) => Math.round(v + (bg[i] - v) * q * 0.3)).join(",")); // far links melt into the background
+		const sh = this.ctx.createRadialGradient(-0.3, -0.35, 0.45, 0, 0, 1.2);
+		sh.addColorStop(0, "rgba(0,0,0,0)");
+		sh.addColorStop(1, light ? "rgba(20,24,48,0.32)" : "rgba(0,4,16,0.38)");
+		this.somaShade = sh;
 		for (const t of TYPES) {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
@@ -1851,7 +1856,7 @@ export class BrainEngine {
 			n.pz = z2;
 			n.sc = p * this.S0;
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
-			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.ps * 3.2) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
+			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.ps * 3.2) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz * (drift ? 1 + 0.018 * Math.sin(this.tNow * 0.0011 + n.drift[4]) : 1)); // never negative: a page behind the camera must not break an arc
 		}
 		if (this.nodes.length > 800) {
 			this.pickGrid.clear();
@@ -2052,7 +2057,7 @@ export class BrainEngine {
 			const settled = this.alpha < 0.02, fresh = settled && key === this.cloudKey && this.cloudCv.width === cw && this.cloudCv.height === ch;
 			this.cloudKey = settled ? key : "";
 			if (fresh) {
-				ctx.globalAlpha = this.ghostAlpha;
+				ctx.globalAlpha = this.ghostAlpha * (this.drifting() ? 1 + 0.05 * Math.sin(this.tNow / 1270) : 1);
 				ctx.drawImage(this.cloudCv, 0, 0, cw, ch, 0, 0, cw / K, ch / K);
 				ctx.globalAlpha = 1;
 			} else {
@@ -2094,7 +2099,7 @@ export class BrainEngine {
 				if (!n.off) puff(n.x, n.y, n.z, (26 + Math.sqrt(n.deg) * 3) * Math.sqrt(step), 0.3); // the cloud also gathers where the visible pages are
 			}
 			cc.globalAlpha = 1;
-			ctx.globalAlpha = this.ghostAlpha;
+			ctx.globalAlpha = this.ghostAlpha * (this.drifting() ? 1 + 0.05 * Math.sin(this.tNow / 1270) : 1); // the whole cloud slowly swells and ebbs, like a resting rhythm
 			ctx.drawImage(this.cloudCv, 0, 0, cw, ch, 0, 0, cw / K, ch / K);
 			ctx.globalAlpha = 1;
 			}
@@ -2192,6 +2197,14 @@ export class BrainEngine {
 			if (axonOn && !axonFront) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
 			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
+			if (n.id === this.selected && n.pr > 4 * dpr) { // a soft shadow under the selected cell lifts it off the cloud
+				ctx.globalAlpha = al * (this.light ? 0.1 : 0.22);
+				ctx.fillStyle = this.light ? "rgb(30,36,64)" : "rgb(0,0,0)";
+				ctx.beginPath();
+				ctx.ellipse(n.px, n.py + n.pr * 1.35, n.pr * 1.2, n.pr * 0.38, 0, 0, 6.2832);
+				ctx.fill();
+				ctx.globalAlpha = al;
+			}
 			if (this.quality > 0 && n.pr > 4.5 * dpr && (full[n.id] === 1 || special)) {
 				const gl = this.glowSprites[n.vt];
 				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
@@ -2380,6 +2393,16 @@ export class BrainEngine {
 		ctx.globalAlpha = al;
 		ctx.fillStyle = this.somaGrad[n.vt] ?? "#888";
 		ctx.fill();
+		if (this.somaShade && R > 3 * dpr) { // the side away from the light is darker, so the body reads as round
+			ctx.fillStyle = this.somaShade;
+			ctx.fill();
+		}
+		if (n.ps > 0.05) { // a firing cell flashes toward white and settles back with its pulse
+			ctx.globalAlpha = al * Math.min(0.4, n.ps * 0.3);
+			ctx.fillStyle = "rgb(255,252,236)";
+			ctx.fill();
+			ctx.globalAlpha = al;
+		}
 		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
