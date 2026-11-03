@@ -73,6 +73,7 @@ Full neurons go to the biggest cells on screen, up to a budget by quality (350 h
 | Rail | 224 px expanded, 52 px folded; three groups under Search and Filters; the choice is remembered; a pane under 640 px folds it into a top bar (Search and Filters labelled, the rest under "more") |
 | Floating search / panel | starts where the rail ends (`--lwb-rail`); a bottom sheet under 640 px |
 | Drawer | right side, 340 px, tabs Note, Lint, Syntax, Shortcuts, one at a time; a bottom sheet under 640 px |
+| Gizmo | three world axes (x red, y green up, z blue) in the bottom right corner of the canvas, turning with the camera, nearest axis strongest; hidden below 360 x 300 px |
 | Strip | "Showing N of M pages, K filters" and Clear; empty result says so |
 | Alerts | `role="alert"` bar above the footer, with Try again |
 | Targets | 32 px minimum with a mouse, 44 px on touch; active-filter chips 24 |
