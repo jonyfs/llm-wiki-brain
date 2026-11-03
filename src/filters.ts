@@ -51,6 +51,19 @@ export function applyPreset(f: FilterSpec, preset: FilterPreset): FilterSpec {
 	}
 }
 
+/** True when the filters are exactly what `preset` would set (invert: when the flag is on). */
+export function presetActive(f: FilterSpec, preset: FilterPreset): boolean {
+	if (preset === "invert") return f.invert;
+	const e = applyPreset(NO_FILTER, preset);
+	return e.folder === f.folder && e.tag === f.tag && e.minDeg === f.minDeg && e.orphansOnly === f.orphansOnly && e.days === f.days
+		&& e.createdDays === f.createdDays && e.maxDeg === f.maxDeg && e.invert === f.invert && e.op === f.op && e.dir === f.dir;
+}
+
+/** A preset button is a toggle: the first click applies it, the next one (while it is the active view) clears it. Invert flips its own flag. */
+export function togglePreset(f: FilterSpec, preset: FilterPreset): FilterSpec {
+	return presetActive(f, preset) && preset !== "invert" ? { ...NO_FILTER } : applyPreset(f, preset);
+}
+
 /** Paths to keep, or null when no filter is active (show everything). */
 export function filterPaths(pages: FilterPage[], f: FilterSpec, ctx: FilterContext): Set<string> | null {
 	if (!(f.folder || f.tag || f.minDeg || f.maxDeg || f.orphansOnly || f.days || f.createdDays || f.op || f.dir || ctx.extra || ctx.isolate || ctx.neighbourhood)) return null;
