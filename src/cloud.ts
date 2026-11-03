@@ -44,3 +44,18 @@ export function brainPuffs(lobes: Lobe[], perUnit: number, seed = 0x5eed): Puff[
 	});
 	return out;
 }
+
+/**
+ * The longitudinal fissure: a line of small puffs in the mid-plane (x = 0) following the outline of the hemispheres, drawn dark so a
+ * crease runs between them. Built from the two biggest lobes: the ellipse in y and z they share at the middle.
+ */
+export function fissurePuffs(lobes: Lobe[]): Puff[] {
+	const hemis = lobes.filter((l) => l.side !== 0).sort((a, b) => b.r[0] * b.r[1] * b.r[2] - a.r[0] * a.r[1] * a.r[2]);
+	if (!hemis.length) return [];
+	const H = hemis[0], out: Puff[] = [];
+	for (let i = 0; i < 40; i++) {
+		const t = (i / 40) * 6.2832;
+		out.push({ lobe: 0, x: 0, y: H.c[1] + H.r[1] * 0.95 * Math.sin(t), z: H.c[2] + H.r[2] * 0.95 * Math.cos(t), r: 9, a: 0.55, nx: 0, ny: 0, nz: 0 });
+	}
+	return out;
+}

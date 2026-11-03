@@ -38,3 +38,10 @@ test("shell puffs carry a unit outward normal, inner puffs none", () => {
 		assert.ok(m === 0 || Math.abs(m - 1) < 1e-6);
 	}
 });
+
+test("the fissure is a ring of puffs in the mid-plane", async () => {
+	const { fissurePuffs } = await import("../.test-build/cloud.mjs");
+	const f = fissurePuffs(LOBES);
+	assert.equal(f.length, 40);
+	assert.ok(f.every((q) => q.x === 0));
+});

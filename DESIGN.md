@@ -37,6 +37,7 @@ Type colours (also the legend):
 
 ## Neuron
 
+- Fissure: a ring of 40 small dark puffs in the mid-plane marks the crease between the hemispheres (high and medium quality). The loop also stops while the tab or app is hidden.
 - Soma shading: a radial shade darkens the side away from the light; a firing cell flashes toward white (up to 40%) with its pulse; the selected cell casts a soft shadow below.
 - Soma: an outline pulled toward its main dendrites (22 points), filled with one gradient per type; light from the top left of the screen.
 - Dendrites: tapered strips, bowed in 3D. Big cells at high quality grow a tree of side branches, up to three levels, each child 63% as thick as its parent (Rall), at most 9 per primary, seeded by the page path. Ports attach to the primary tips only. No spines, no nucleus.
