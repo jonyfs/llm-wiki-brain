@@ -73,3 +73,20 @@ Plugin from #32 installed in a throwaway vault (62 notes, then 1,262 notes; 800 
 Found only here: the frame-gap quality rule (item 27) lowered quality from 2 to 1 at 60 nodes while the draw took 1 to 2 ms, because the OS throttles a background window to about 30 fps. Fixed: a long gap now counts only when the draw itself is slow (src/engine.ts, `tune`).
 
 Draw cost per call, 800 nodes, camera moving, median: 35.1 ms on release 0.14.0 (31.7 ms with the window in front) against 43.7 ms with #32 at the highest quality. Per component at the highest quality: sulci, fissure, rim, dark sprite and gizmo cost about 1 ms each; the whole step from quality 2 to 1 is 41.5 ms to 11.4 ms (4.6 ms at 0), so the automatic quality control absorbs the difference (it settles at 1 on this vault). The rAF cadence of a window driven over the debug port was about 300 ms even with the engine idle, so frame rate could not be read there; only per-draw cost is reported.
+
+### Release checklist in real Obsidian 1.15.0 (steps 1 to 10)
+
+Run on the throwaway vault above (1,262 notes; the view shows at most 800 pages and says how many it left out). Driven through the app object, not by hand, so pointer gestures were not exercised.
+
+1. Plugin enabled, no console error: pass.
+2. View opens, status line shows pages, links, orphans: pass (800 of 800 shown, 3,179 links, 0 orphans, 460 left out).
+3. Camera rotate, zoom, reset: pass.
+4. Select a page, then clear: pass (selected 85, then -1).
+5. Open a note from the view: pass (note opened in a new tab and became the active file).
+6. Flow: pass (3 hops, real route, not virtual).
+7. Create a note: the vault accepted it and the view stayed at the 800-page cap, so the count did not change; firing of the new neuron was not observed because the page was left out by the cap. Checked on the small vault earlier only through the view refresh, not by eye: partial.
+8. Replay while a note is edited: pass (replay bar stayed up).
+9. Search, quick-view toggle (apply, second click clears), Lint: pass.
+10. Narrow pane: pass (rail stays usable); restoring filters after closing and reopening the view was not exercised: partial.
+
+Not covered: pointer drags and double-clicks by hand, a real-GPU frame rate, mobile Obsidian.
