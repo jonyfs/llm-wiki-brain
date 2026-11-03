@@ -1,7 +1,7 @@
-import { HoverPopover, ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { App, HoverPopover, ItemView, Menu, Modal, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
-import { filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER } from "./filters";
+import { ageChoice, dateDaysAgo, daysSince, filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER } from "./filters";
 import { createDeferredRefresh } from "./refresh";
 import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
@@ -51,6 +51,32 @@ interface ViewState {
 
 const stem = (p: string) => p.split("/").pop()?.replace(/\.md$/, "") ?? p;
 
+/** A confirmation inside the plugin (not the browser's window.confirm): says what will happen, defaults to the safe button. */
+class ConfirmModal extends Modal {
+	private settled = false;
+	constructor(app: App, private message: string, private yes: string, private no: string, private done: (ok: boolean) => void) {
+		super(app);
+	}
+	onOpen(): void {
+		this.contentEl.createEl("p", { text: this.message });
+		const row = this.contentEl.createDiv({ cls: "modal-button-container" });
+		const cancel = row.createEl("button", { text: this.no });
+		cancel.addEventListener("click", () => this.finish(false));
+		row.createEl("button", { cls: "mod-warning", text: this.yes }).addEventListener("click", () => this.finish(true));
+		cancel.focus();
+	}
+	private finish(ok: boolean): void {
+		if (this.settled) return;
+		this.settled = true;
+		this.done(ok);
+		this.close();
+	}
+	onClose(): void {
+		this.contentEl.empty();
+		this.finish(false); // Esc or a click outside means no
+	}
+}
+
 /** setIcon with fallbacks: the first name Obsidian's icon set actually draws wins (a missing name leaves the element empty). */
 function setIconSafe(el: HTMLElement, names: string[]): void {
 	for (const name of names) {
@@ -99,6 +125,7 @@ export class BrainView extends ItemView {
 	private searchPillText!: HTMLElement;
 	private searchIdle!: IdleTimer;
 	private searchHint!: HTMLElement;
+	private paletteSeen = "";
 	private lastQuery = ""; // the search text the current hits belong to
 	private drawer!: HTMLElement;
 	private drawerTabs!: HTMLElement;
@@ -126,8 +153,7 @@ export class BrainView extends ItemView {
 	private degOut!: HTMLElement;
 	private daysSel!: HTMLSelectElement;
 	private createdSel!: HTMLSelectElement;
-	private editedAfterIn!: HTMLInputElement;
-	private createdAfterIn!: HTMLInputElement;
+	private ageControls: (() => void)[] = []; // each age select and its date field, kept in step with the filters
 	private maxIn!: HTMLInputElement;
 	private maxOut!: HTMLElement;
 	private depthSel!: { setValue: (v: string) => void };
@@ -242,7 +268,7 @@ export class BrainView extends ItemView {
 			cls: "llm-wiki-brain-skiplink",
 			attr: { href: "#llm-wiki-brain-canvas", "aria-label": this.t("canvas.aria") },
 		});
-		this.skipLink.setText(this.t("cmd.search")); // "Focus the search box" reused as skip label
+		this.skipLink.setText(this.t("canvas.skip"));
 		this.skipLink.addEventListener("click", (e) => {
 			e.preventDefault();
 			this.canvas.focus();
@@ -401,6 +427,7 @@ export class BrainView extends ItemView {
 			reducedMotion: reduced,
 			ambient: () => ({ off: 0, calm: 1, lively: 2 })[this.plugin.settings.ambient],
 			flowSpeed: () => ({ slow: 0.6, normal: 1, fast: 1.6 })[this.plugin.settings.flowSpeed],
+			palette: () => this.plugin.settings.palette,
 			detail: () => this.plugin.settings.neuronDetail,
 			labelScale: () => this.plugin.settings.labelScale,
 			onOpen: (path, split) => this.openNote(path, split),
@@ -747,39 +774,36 @@ export class BrainView extends ItemView {
 			this.filters.maxDeg = Number(this.maxIn.value);
 			this.applyFilters();
 		});
-		const ages: [string, string][] = [["0", this.t("filters.anyTime")], ["7", this.t("filters.days7")], ["30", this.t("filters.days30")], ["365", this.t("filters.year")]];
-		this.daysSel = this.select(this.t("filters.edited"), ages, (v) => {
-			this.filters.days = Number(v);
-			this.applyFilters();
-		});
-		this.createdSel = this.select(this.t("filters.created"), ages, (v) => {
-			this.filters.createdDays = Number(v);
-			this.applyFilters();
-		});
-		const editedAfter = this.field(this.t("filters.editedAfter"), this.t("filters.editedAfter"));
-		this.editedAfterIn = editedAfter.createEl("input", { type: "date", attr: { "aria-label": this.t("filters.editedAfter") } });
-		this.editedAfterIn.addEventListener("change", () => {
-			if (!this.editedAfterIn.value) { this.filters.days = 0; }
-			else {
-				const d = new Date(this.editedAfterIn.value);
-				const diff = Math.ceil((Date.now() - d.getTime()) / 86400000);
-				this.filters.days = diff > 0 ? diff : 0;
-			}
-			this.syncControls(false);
-			this.applyFilters();
-		});
-		const createdAfter = this.field(this.t("filters.createdAfter"), this.t("filters.createdAfter"));
-		this.createdAfterIn = createdAfter.createEl("input", { type: "date", attr: { "aria-label": this.t("filters.createdAfter") } });
-		this.createdAfterIn.addEventListener("change", () => {
-			if (!this.createdAfterIn.value) { this.filters.createdDays = 0; }
-			else {
-				const d = new Date(this.createdAfterIn.value);
-				const diff = Math.ceil((Date.now() - d.getTime()) / 86400000);
-				this.filters.createdDays = diff > 0 ? diff : 0;
-			}
-			this.syncControls(false);
-			this.applyFilters();
-		});
+		const presets = [7, 30, 365];
+		const ages: [string, string][] = [["0", this.t("filters.anyTime")], ["7", this.t("filters.days7")], ["30", this.t("filters.days30")], ["365", this.t("filters.year")], ["custom", this.t("filters.customDate")]];
+		// Edited and Created each get one control: a preset, or "Since a date..." which reveals a date field in the same row.
+		const age = (label: string, ariaDate: string, get: () => number, set: (d: number) => void): { sel: HTMLSelectElement; date: HTMLInputElement } => {
+			const sel = this.select(label, ages, (v) => {
+				if (v === "custom") {
+					date.removeClass("is-hidden");
+					date.focus();
+					return;
+				}
+				date.addClass("is-hidden");
+				set(Number(v));
+				this.applyFilters();
+			});
+			const date = (sel.parentElement as HTMLElement).createEl("input", { type: "date", cls: "llm-wiki-brain-agedate is-hidden", attr: { "aria-label": ariaDate } });
+			date.addEventListener("change", () => {
+				set(daysSince(date.value, Date.now()));
+				this.syncControls(false);
+				this.applyFilters();
+			});
+			this.ageControls.push(() => {
+				const days = get(), choice = ageChoice(days, presets);
+				sel.value = choice;
+				date.toggleClass("is-hidden", choice !== "custom");
+				if (choice === "custom") date.value = dateDaysAgo(days, Date.now());
+			});
+			return { sel, date };
+		};
+		this.daysSel = age(this.t("filters.edited"), this.t("filters.editedAfter"), () => this.filters.days, (d) => (this.filters.days = d)).sel;
+		this.createdSel = age(this.t("filters.created"), this.t("filters.createdAfter"), () => this.filters.createdDays, (d) => (this.filters.createdDays = d)).sel;
 		const sec2 = sec(this.t("filters.section.advanced"), false);
 		this.depthSel = this.segmented(this.t("filters.depth"), [["1", "1"], ["2", "2"], ["3", "3"]], (v) => {
 			this.filters.depth = Number(v);
@@ -860,10 +884,13 @@ export class BrainView extends ItemView {
 		});
 		views.createEl("button", { text: this.t("views.delete") }).addEventListener("click", () => {
 			if (!this.viewSel.value) return;
-			if (!window.confirm(this.t("views.deleteConfirm", { name: this.viewSel.value }))) return;
-			void this.plugin.saveViews(removeView(this.plugin.settings.savedViews, this.viewSel.value));
-			this.nameIn.value = "";
-			this.fillViews();
+			const name = this.viewSel.value;
+			new ConfirmModal(this.app, this.t("views.deleteConfirm", { name }), this.t("dialog.yes"), this.t("dialog.no"), (ok) => {
+				if (!ok) return;
+				void this.plugin.saveViews(removeView(this.plugin.settings.savedViews, name));
+				this.nameIn.value = "";
+				this.fillViews();
+			}).open();
 		});
 	}
 
@@ -1065,8 +1092,7 @@ export class BrainView extends ItemView {
 		this.degOut.setText(String(f.minDeg));
 		this.maxIn.value = String(f.maxDeg);
 		this.maxOut.setText(f.maxDeg ? String(f.maxDeg) : "∞");
-		this.daysSel.value = String(f.days);
-		this.createdSel.value = String(f.createdDays);
+		for (const sync of this.ageControls) sync();
 		this.depthSel.setValue(String(f.depth));
 		this.dirSel.setValue(f.dir);
 		this.invIn.checked = f.invert;
@@ -1096,8 +1122,13 @@ export class BrainView extends ItemView {
 	/** Clear every filter, the isolated neighbourhood or selection, and the search. */
 	clearAll(confirm = true): void {
 		if (confirm && (this.currentChips().length || this.search.value.trim() || this.neighborhood || this.isolate)) {
-			if (!window.confirm(this.t("filters.clearConfirm"))) return;
+			new ConfirmModal(this.app, this.t("filters.clearConfirm"), this.t("dialog.yes"), this.t("dialog.no"), (ok) => ok && this.doClear()).open();
+			return;
 		}
+		this.doClear();
+	}
+
+	private doClear(): void {
 		this.filters = { ...DEFAULT_FILTERS, hidden: [] };
 		this.neighborhood = null;
 		this.isolate = null;
@@ -1172,6 +1203,10 @@ export class BrainView extends ItemView {
 	/** Rebuild the graph from the vault; existing cells keep their place and the selection survives. */
 	async refresh(): Promise<void> {
 		if (!this.engine) return;
+		if (this.paletteSeen !== this.plugin.settings.palette) { // the colour palette setting changed: repaint the sprites
+			this.paletteSeen = this.plugin.settings.palette;
+			this.engine.readTheme();
+		}
 		this.loading.show();
 		const log = await this.plugin.readLog();
 		if (!this.engine) return;
@@ -1618,14 +1653,16 @@ export class BrainView extends ItemView {
 		act(this.t("info.attend"), () => this.attend(info.path));
 		act(this.t("info.copy"), () => void this.copyLinks([info.path]));
 		this.info.createDiv({ cls: "llm-wiki-brain-meta", text: this.t("info.neuron", { inn: info.inputs.length, out: info.outputs.length, theta: info.threshold }) });
-		const side = (title: string, items: { path: string; label: string }[], open: boolean) => {
+		const side = (title: string, items: { path: string; label: string; w?: number; m?: number }[], open: boolean) => {
 			if (!items.length) return;
 			const d = this.info.createEl("details", { cls: "llm-wiki-brain-side" });
 			d.open = open;
 			d.createEl("summary", { text: `${title} (${items.length})` });
 			const list = d.createDiv({ cls: "llm-wiki-brain-neighbors" });
 			for (const n of items) {
-				const b = list.createEl("button", { text: n.label, attr: { title: n.path } });
+				const tip = n.w === undefined ? n.path : n.path + " · " + this.t("info.strength", { w: n.w, m: Math.round((n.m ?? 0) * 100) });
+				const b = list.createEl("button", { text: n.label, attr: { title: tip } });
+				if (n.w !== undefined) b.createSpan({ cls: "llm-wiki-brain-w", text: String(n.w) }); // how strong the link is, as a number
 				b.addEventListener("click", () => this.engine?.selectPath(n.path, true));
 			}
 		};

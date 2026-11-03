@@ -7,6 +7,7 @@ import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spi
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
 import { hashStr, makeDrift, rng } from "./rand";
+import { settleAlpha } from "./layout";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
 import { arborize, denControl, MARK_OF, markPoly, quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
@@ -33,8 +34,8 @@ export interface NodeInfo {
 	ctime: number;
 	mtime: number;
 	neighbors: { path: string; label: string }[];
-	inputs: { path: string; label: string }[]; // pages that link here (dendrites)
-	outputs: { path: string; label: string }[]; // pages this one links to (axon)
+	inputs: { path: string; label: string; w: number; m: number }[]; // pages that link here (dendrites), with the strength and myelination of the link
+	outputs: { path: string; label: string; w: number; m: number }[]; // pages this one links to (axon)
 	threshold: number; // input the page needs before it fires
 	pinned: boolean;
 }
@@ -57,6 +58,7 @@ export interface EngineOptions {
 	reducedMotion: boolean;
 	ambient: () => number; // 0 off, 1 calm, 2 lively
 	flowSpeed: () => number; // 0.6 slow, 1 normal, 1.6 fast
+	palette?: () => "default" | "colorblind";
 	detail: () => "auto" | "high" | "simple"; // auto adapts to frame time, high keeps full neurons, simple keeps spheres
 	onOpen: (path: string, split?: boolean) => void;
 	onHover: (path: string | null, ev?: PointerEvent) => void;
@@ -167,6 +169,12 @@ const MORPH: Record<PageType, number[]> = {
 const COLORS = {
 	dark: { source: "#5eead4", entity: "#fbbf24", concept: "#8b97ff", synthesis: "#f472b6" },
 	light: { source: "#0f766e", entity: "#b45309", concept: "#4338ca", synthesis: "#be185d" },
+};
+
+/** The same four types in colours that stay apart under the common kinds of colour blindness (after the Okabe-Ito set). */
+const COLORS_SAFE = {
+	dark: { source: "#56b4e9", entity: "#f0e442", concept: "#cc79a7", synthesis: "#009e73" },
+	light: { source: "#0072b2", entity: "#c25b00", concept: "#8a3b78", synthesis: "#007a5a" },
 };
 
 /** The type marks in unit soma space (the soma outline is drawn scaled by its radius). */
@@ -457,7 +465,7 @@ export class BrainEngine {
 		this.refreshWeights();
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
-		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
+		this.alpha = settleAlpha(known, saved ? pages.filter((p) => !saved[p.path]).length : pages.length, this.opts.reducedMotion); // mostly known: settle gently, a little more for each new page
 		if (this.opts.reducedMotion) for (let s = 0, a = 1, steps = this.nodes.length > 3000 ? 70 : 220; s < steps; s++, a *= this.nodes.length > 3000 ? 0.95 : 0.985) this.simStep(a);
 		this.assignPorts();
 		this.opts.onSelect(this.selected >= 0 ? this.infoOf(this.selected) : null);
@@ -562,8 +570,8 @@ export class BrainEngine {
 		return {
 			path: n.path, label: n.label, type: n.type, deg: n.deg, ctime: n.ctime, mtime: n.mtime,
 			neighbors: n.adj.slice().sort((a, b) => this.nodes[b].deg - this.nodes[a].deg).slice(0, 12).map((j) => ({ path: this.nodes[j].path, label: this.nodes[j].label })),
-			inputs: (this.net?.inn[id] ?? []).map((x) => this.nodes[x.from]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
-			outputs: (this.net?.out[id] ?? []).map((x) => this.nodes[x.to]).sort((a, b) => b.deg - a.deg).slice(0, 12).map((c) => ({ path: c.path, label: c.label })),
+			inputs: (this.net?.inn[id] ?? []).map((x) => ({ c: this.nodes[x.from], x })).sort((a, b) => b.c.deg - a.c.deg).slice(0, 12).map(({ c, x }) => ({ path: c.path, label: c.label, w: Math.round(x.w * 100) / 100, m: Math.round(myelinOf(this.net!, x) * 100) / 100 })),
+			outputs: (this.net?.out[id] ?? []).map((x) => ({ c: this.nodes[x.to], x })).sort((a, b) => b.c.deg - a.c.deg).slice(0, 12).map(({ c, x }) => ({ path: c.path, label: c.label, w: Math.round(x.w * 100) / 100, m: Math.round(myelinOf(this.net!, x) * 100) / 100 })),
 			threshold: Math.round((this.net?.theta[id] ?? 1) * 100) / 100,
 			pinned: !!n.pinned,
 		};
@@ -1266,7 +1274,7 @@ export class BrainEngine {
 	readTheme(): void {
 		const light = document.body.classList.contains("theme-light");
 		const cs = getComputedStyle(this.canvas);
-		this.pal = COLORS[light ? "light" : "dark"];
+		this.pal = (this.opts.palette?.() === "colorblind" ? COLORS_SAFE : COLORS)[light ? "light" : "dark"];
 		this.edgeRGB = light ? "100,104,136" : "108,118,148"; // quiet slate-blue: links must not out-shine the cells
 		this.labelColor = cs.getPropertyValue("--text-normal").trim() || (light ? "#222" : "#e8eaf0");
 		this.bgColor = cs.getPropertyValue("--background-primary").trim() || (light ? "#fff" : "#0d1017");

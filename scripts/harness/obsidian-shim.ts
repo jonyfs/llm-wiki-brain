@@ -15,6 +15,24 @@ export function setIcon(el: HTMLElement, name: string): void {
 	el.appendChild(span);
 }
 export class HoverPopover {}
+export class Modal {
+	contentEl: HTMLElement = document.createElement("div");
+	private host: HTMLElement | null = null;
+	constructor(public app: unknown) {}
+	open(): void {
+		this.host = document.body.appendChild(document.createElement("div"));
+		this.host.className = "modal-container";
+		this.host.appendChild(this.contentEl);
+		this.onOpen();
+	}
+	close(): void {
+		this.host?.remove();
+		this.host = null;
+		this.onClose();
+	}
+	onOpen(): void {}
+	onClose(): void {}
+}
 export class Notice {
 	constructor(public message: string) {
 		(window as unknown as { notices?: string[] }).notices?.push(message);

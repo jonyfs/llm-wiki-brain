@@ -1962,3 +1962,16 @@
 .llm-wiki-brain.is-narrow {
 	flex-direction: column;
 }
+
+.llm-wiki-brain-w {
+	margin-left: 6px;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.llm-wiki-brain-agedate.is-hidden {
+	display: none;
+}
+.llm-wiki-brain-agedate {
+	flex: 1 1 8em;
+}
