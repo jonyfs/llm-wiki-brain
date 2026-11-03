@@ -73,6 +73,7 @@ Full neurons go to the biggest cells on screen, up to a budget by quality (350 h
 
 ## Behaviour
 
+- Quick-view buttons (Orphans, Hubs, Recent, New, Sinks, Sources) are toggles: the first click applies the view, a second click while it is active clears it; Invert flips its own flag. Pressing another one switches to it.
 - Search: opens from its icon, folds after 10 s without use; Enter next, Shift+Enter previous, Ctrl/Cmd+Enter asks, Esc clears then closes.
 - Shortcuts on the canvas: `f` Filters panel (never while typing, never with Ctrl/Cmd/Alt), `Shift+f` full screen, `?` shortcuts, arrows rotate, `0` `1` `2` `3` camera.
 - The view reopens as it was left (filters, search, colour, size).

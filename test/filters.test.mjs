@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterPaths, neighbourhoodOf, NO_FILTER, applyPreset } from "../.test-build/filters.mjs";
+import { filterPaths, neighbourhoodOf, NO_FILTER, applyPreset, presetActive, togglePreset } from "../.test-build/filters.mjs";
 
 const DAY = 86400000, NOW = 1_800_000_000_000;
 const pages = [
@@ -92,4 +92,22 @@ test("ageChoice names a preset or custom", () => {
 	assert.equal(ageChoice(0, [7, 30, 365]), "0");
 	assert.equal(ageChoice(30, [7, 30, 365]), "30");
 	assert.equal(ageChoice(12, [7, 30, 365]), "custom");
+});
+
+test("a preset button toggles: the second press clears it", () => {
+	for (const p of ["orphans", "hubs", "recent", "new", "sinks", "sources"]) {
+		const on = togglePreset(NO_FILTER, p);
+		assert.ok(presetActive(on, p), p + " turns on");
+		const off = togglePreset(on, p);
+		assert.deepEqual(off, NO_FILTER, p + " turns off");
+	}
+});
+
+test("pressing another preset switches to it; invert flips on and off", () => {
+	const a = togglePreset(NO_FILTER, "orphans");
+	const b = togglePreset(a, "hubs");
+	assert.ok(presetActive(b, "hubs") && !presetActive(b, "orphans"));
+	const inv = togglePreset(b, "invert");
+	assert.equal(inv.invert, true);
+	assert.equal(togglePreset(inv, "invert").invert, false);
 });

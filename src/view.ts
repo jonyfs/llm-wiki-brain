@@ -1,7 +1,7 @@
 import { App, HoverPopover, ItemView, Menu, Modal, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { BrainEngine, NodeInfo, PageType, TYPES } from "./engine";
 import type BrainPlugin from "./main";
-import { ageChoice, dateDaysAgo, daysSince, filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER } from "./filters";
+import { ageChoice, dateDaysAgo, daysSince, filterPaths, neighbourhoodOf, FilterPage, applyPreset, FilterPreset, NO_FILTER, presetActive, togglePreset } from "./filters";
 import { createDeferredRefresh } from "./refresh";
 import type { StringKey, Vars } from "./i18n";
 import { buildVaultGraph, matchQuery, VaultGraph } from "./vaultGraph";
@@ -1142,7 +1142,7 @@ export class BrainView extends ItemView {
 
 	/** Apply a one-click filter preset, replacing the active filter set (invert toggles). */
 	applyPreset(p: FilterPreset): void {
-		const spec = applyPreset(this.filters, p);
+		const spec = togglePreset(this.filters, p); // pressing the active preset again turns it off
 		this.filters.folder = spec.folder;
 		this.filters.tag = spec.tag;
 		this.filters.minDeg = spec.minDeg;
@@ -1165,12 +1165,7 @@ export class BrainView extends ItemView {
 		btns.forEach((b, i) => {
 			const p = presets[i];
 			if (!p) { b.setAttribute("aria-pressed", "false"); return; }
-			const expected = applyPreset({ ...NO_FILTER }, p);
-			const match = expected.folder === this.filters.folder && expected.tag === this.filters.tag
-				&& expected.minDeg === this.filters.minDeg && expected.orphansOnly === this.filters.orphansOnly
-				&& expected.days === this.filters.days && expected.createdDays === this.filters.createdDays
-				&& expected.maxDeg === this.filters.maxDeg && expected.invert === this.filters.invert
-				&& expected.op === this.filters.op && expected.dir === this.filters.dir;
+			const match = presetActive(this.filters, p);
 			b.setAttribute("aria-pressed", String(match));
 		});
 		// invert button reflects the invert flag
