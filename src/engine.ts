@@ -338,6 +338,7 @@ export class BrainEngine {
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
 	private cloudFog = 0.45; // how much far puffs fade (0 none, 1 vanish)
+	private cloudKey = ""; // what the cloud bitmap was last painted for; while it is unchanged the bitmap is reused
 	private camCy = 1;
 	private camSy = 0;
 	private camCp = 1;
@@ -1318,6 +1319,7 @@ export class BrainEngine {
 			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
 		this.ghost = makeGhost(this.edgeRGB);
+		this.cloudKey = ""; // the cloud sprite changed, so the cached bitmap is stale
 		this.start();
 	}
 
@@ -2017,6 +2019,17 @@ export class BrainEngine {
 				this.cloudCv = createEl("canvas");
 				this.cloudCtx = this.cloudCv.getContext("2d") as CanvasRenderingContext2D;
 			}
+			// With the camera still and the layout settled the cloud is the same picture as last frame, so it is not repainted.
+			let offSum = 0;
+			for (let i = 0; i < nodes.length; i++) if (nodes[i].off) offSum += i + 1;
+			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, cw, ch, this.quality > 0 ? 1 : 0, nodes.length, offSum].join();
+			const settled = this.alpha < 0.02, fresh = settled && key === this.cloudKey && this.cloudCv.width === cw && this.cloudCv.height === ch;
+			this.cloudKey = settled ? key : "";
+			if (fresh) {
+				ctx.globalAlpha = this.ghostAlpha;
+				ctx.drawImage(this.cloudCv, 0, 0, cw, ch, 0, 0, cw / K, ch / K);
+				ctx.globalAlpha = 1;
+			} else {
 			if (this.cloudCv.width !== cw || this.cloudCv.height !== ch) {
 				this.cloudCv.width = cw;
 				this.cloudCv.height = ch;
@@ -2040,6 +2053,7 @@ export class BrainEngine {
 			ctx.globalAlpha = this.ghostAlpha;
 			ctx.drawImage(this.cloudCv, 0, 0, cw, ch, 0, 0, cw / K, ch / K);
 			ctx.globalAlpha = 1;
+			}
 		}
 		const f = this.hovered !== -1 ? this.hovered : this.selected, fn = f >= 0 ? nodes[f] : null;
 		if (this.nbBuf.length !== nodes.length) this.nbBuf = new Uint8Array(nodes.length);
