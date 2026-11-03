@@ -201,8 +201,9 @@ function mix(h: string, t: number[], amt: number): string {
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
 }
 
-function makeSprite(color: string, glow: number, core = true, kind = "circle"): HTMLCanvasElement {
-	const S = 96;
+const SPRITE_SIZES = [32, 64, 128];
+
+function makeSprite(color: string, glow: number, core = true, kind = "circle", S = 96): HTMLCanvasElement {
 	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
@@ -311,6 +312,7 @@ export class BrainEngine {
 	private ro: ResizeObserver;
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private spriteAtlas: Partial<Record<PageType, HTMLCanvasElement[]>> = {}; // per type, three sizes (32, 64, 128 px): a small cell never shrinks a big bitmap, a big one never stretches a small bitmap
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private ephi = new Float32Array(0); // per link: which way around its chord it bulges, from its two page paths (stable when other links come and go)
 	private myel: number[] = []; // the links worth a sheath, strongest first
@@ -1322,6 +1324,7 @@ export class BrainEngine {
 		this.somaShade = sh;
 		for (const t of TYPES) {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
+			this.spriteAtlas[t] = SPRITE_SIZES.map((S) => makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t], S));
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
 			const sg = this.ctx.createRadialGradient(-0.25, -0.3, 0.05, 0, 0, 1.25);
@@ -1585,7 +1588,8 @@ export class BrainEngine {
 		this.cleanups = [];
 	}
 
-	private tune(ms: number): void {
+	/** `gap` is the time since the previous draw while the user was driving (0 when idle): a canvas cannot read GPU time, but a long gap with a short draw means the GPU is behind. */
+	private tune(ms: number, gap = 0): void {
 		const mode = this.opts.detail();
 		if (mode !== "auto") {
 			this.quality = mode === "high" ? 2 : 0;
@@ -1593,7 +1597,7 @@ export class BrainEngine {
 			this.frameMs = ms;
 			return;
 		}
-		this.ema = this.ema * 0.9 + ms * 0.1;
+		this.ema = this.ema * 0.9 + (gap > 0 ? Math.max(ms, gap - 8) : ms) * 0.1;
 		this.frameMs = this.ema;
 		this.frames++;
 		if (this.frames % 20) return;
@@ -1799,8 +1803,9 @@ export class BrainEngine {
 				console.error("llm-wiki-brain: draw failed", err);
 				this.reportDrawFailure(this.opts.text("status.drawFailed", { error: err instanceof Error ? err.message : String(err) }));
 			}
+			const gap = busy && now - this.lastDraw < 120 ? now - this.lastDraw : 0;
 			this.lastDraw = now;
-			this.tune(performance.now() - t0);
+			this.tune(performance.now() - t0, gap);
 		}
 		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible) this.raf = window.requestAnimationFrame((t) => this.frame(t));
 		else this.running = false;
@@ -2074,7 +2079,7 @@ export class BrainEngine {
 				cc.globalAlpha = a * (1 - depth * fog);
 				cc.drawImage(sp as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
 			};
-			const LX = -0.5, LY = -0.55, LZ = -0.67; // light from the top left, in front
+			const LX = -0.5 + 0.22 * Math.sin(this.yaw * 0.5), LY = -0.55, LZ = -0.67; // light from the top left, in front; it slips a little with the camera so the lit side keeps changing as the brain turns
 			const rim = this.ghostRim, deep = this.ghostDeep;
 			const drawPuff = (sp: HTMLCanvasElement, wx: number, wy: number, wz: number, wr: number, a: number) => {
 				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
@@ -2158,19 +2163,22 @@ export class BrainEngine {
 			this.edgePath(tracts);
 			ctx.stroke();
 		}
-		if (fn) {
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.55)";
+		if (fn) { // the links of the focused page: each runs from the colour of one end to the colour of the other
 			ctx.lineWidth = dpr * 1.4;
-			ctx.beginPath();
 			for (const e of this.edges) {
 				if (e[0] !== f && e[1] !== f) continue;
 				const a = nodes[e[0]], b = nodes[e[1]];
 				if (a.off || b.off) continue;
 				const c = this.ePts(this.edgeOf(e[0], e[1]), true);
+				const gr = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
+				gr.addColorStop(0, "rgba(" + (this.mutedRGB[a.vt] ?? this.edgeRGB) + ",0.7)");
+				gr.addColorStop(1, "rgba(" + (this.mutedRGB[b.vt] ?? this.edgeRGB) + ",0.7)");
+				ctx.strokeStyle = gr;
+				ctx.beginPath();
 				ctx.moveTo(c[0], c[1]);
 				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+				ctx.stroke();
 			}
-			ctx.stroke();
 		}
 		this.drawRoutes();
 		const m = 70 * dpr, warn = this.tNow < this.flagUntil;
@@ -2210,8 +2218,11 @@ export class BrainEngine {
 				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
 				this.drawSoma(n, al);
 			} else {
-				const sp = this.sprites[n.vt];
-				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+				const at = this.spriteAtlas[n.vt], sp = at ? at[size <= 36 ? 0 : size <= 72 ? 1 : 2] : this.sprites[n.vt];
+				if (n.pr < 1.1 * dpr) { // too small to show a shape: one dot, no bitmap
+					ctx.fillStyle = "rgb(" + (this.mutedRGB[n.vt] ?? this.edgeRGB) + ")";
+					ctx.fillRect(n.px - 0.8 * dpr, n.py - 0.8 * dpr, 1.6 * dpr, 1.6 * dpr);
+				} else if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
 			}
 			if (this.quality > 0 && n.pr > 2 * dpr) {
 				const rf = clamp((n.refr - this.tNow) / 600, 0, 1);
@@ -2597,7 +2608,7 @@ export class BrainEngine {
 				ctx.fill();
 			}
 			ctx.globalAlpha = clamp(al, 0.1, 1) * 0.9;
-			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.quality > 0 ? tint : this.labelColor;
+			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.quality > 0 ? "rgb(" + mixRGB(this.mutedRGB[a.vt] ?? this.edgeRGB, this.light ? "40,48,70" : "255,255,255", 0.55) + ")" : this.labelColor; // a bright head over a tail in the type colour
 			ctx.beginPath();
 			ctx.arc(x, y, 1.8 * dpr, 0, 6.2832);
 			ctx.fill();

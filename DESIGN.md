@@ -33,6 +33,7 @@ Type colours (also the legend):
 - Cloud: each lobe is a swarm of soft puffs in 3D (about 34 per unit of lobe size, 65 to 70% near the surface, seeded), plus one puff per visible page (at most ~220). They are drawn at a quarter of the resolution and scaled up, with far puffs fading by 0.45. Overall opacity 0.62 dark, 0.42 light.
 - Cloud tint: each lobe's puffs are pulled 35% toward the colour of the page type that is most common in it (visible pages only), so a lobe full of sources reads teal.
 - Cloud light: shell puffs facing the light (top left, in front) get a lighter rim in the dark theme; inner puffs use a darker sprite, so the valleys read deeper; a faint radial haze sits behind the brain. Spikes are drawn additively in the dark theme.
+- Links of the focused page run in a gradient from the colour of one end to the colour of the other (0.7). Spike heads are the type colour pulled 55% toward white (toward ink in the light theme). The cloud's lit side shifts a little with the camera yaw.
 - Warning and failure use `--text-warning`; inhibition is a cold dashed ring `rgb(140,175,255)`.
 
 ## Neuron
@@ -60,7 +61,7 @@ Type colours (also the legend):
 
 ## Detail and performance
 
-Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark. Drift runs up to 2500 nodes. Links are straight lines above 3500.
+Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark, from an atlas of three sizes (32, 64, 128 px) per type; below 1.1 px a cell is a single dot. Quality also steps down when frames arrive late while the draw itself is quick (the GPU is behind). Drift runs up to 2500 nodes. Links are straight lines above 3500.
 
 ## Layout
 
