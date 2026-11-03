@@ -2218,7 +2218,15 @@ export class BrainEngine {
 				this.drawSoma(n, al);
 			} else {
 				const sp = this.sprites[n.vt];
-				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+				if (sp) {
+					const dof = n.pd > 0.6 ? (n.pd - 0.6) / 0.4 : 0; // out of focus: far cells spread a little and soften, as if the depth of field were shallow
+					if (dof > 0) {
+						const sz = size * (1 + dof * 0.3);
+						ctx.globalAlpha = al * (1 - dof * 0.25);
+						ctx.drawImage(sp, n.px - sz / 2, n.py - sz / 2, sz, sz);
+						ctx.globalAlpha = al;
+					} else ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+				}
 			}
 			if (this.quality > 0 && n.pr > 2 * dpr) {
 				const rf = clamp((n.refr - this.tNow) / 600, 0, 1);
