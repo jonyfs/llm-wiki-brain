@@ -50,3 +50,10 @@ test("sulci stay on the lobe surface and are seeded", async () => {
 		assert.ok(Math.abs(d - 0.97) < 0.02, "on the surface, d=" + d);
 	}
 });
+
+test("the fissure is a ring of puffs in the mid-plane", async () => {
+	const { fissurePuffs } = await import("../.test-build/cloud.mjs");
+	const f = fissurePuffs(LOBES);
+	assert.equal(f.length, 40);
+	assert.ok(f.every((q) => q.x === 0));
+});

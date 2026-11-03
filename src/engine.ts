@@ -6,7 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { brainPuffs, brainSulci, type Puff } from "./cloud";
+import { brainPuffs, brainSulci, fissurePuffs, type Puff } from "./cloud";
 import { hashStr, makeDrift, rng } from "./rand";
 import { settleAlpha } from "./layout";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBendInto, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
@@ -343,6 +343,7 @@ export class BrainEngine {
 	private cloudCtx: CanvasRenderingContext2D | null = null;
 	private puffs: Puff[] = brainPuffs(LOBES, 34);
 	private sulci: Puff[] = brainSulci(LOBES, 5);
+	private fissure: Puff[] = fissurePuffs(LOBES);
 	private puffsLow: Puff[] = brainPuffs(LOBES, 16, 0x5eed + 1);
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
@@ -389,6 +390,9 @@ export class BrainEngine {
 			});
 			this.io.observe(canvas);
 		}
+		const onVis = () => { if (!document.hidden) this.start(); }; // a hidden tab draws nothing; coming back restarts the loop
+		document.addEventListener("visibilitychange", onVis);
+		this.cleanups.push(() => document.removeEventListener("visibilitychange", onVis));
 		this.bind();
 		this.readTheme();
 		this.resize();
@@ -1583,7 +1587,7 @@ export class BrainEngine {
 	/* ---------- Loop ---------- */
 
 	start(): void {
-		if (this.running || !this.visible) return;
+		if (this.running || !this.visible || document.hidden) return;
 		this.running = true;
 		this.last = performance.now();
 		this.raf = window.requestAnimationFrame((t) => this.frame(t));
@@ -1817,7 +1821,7 @@ export class BrainEngine {
 			this.lastDraw = now;
 			this.tune(performance.now() - t0, gap);
 		}
-		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible) this.raf = window.requestAnimationFrame((t) => this.frame(t));
+		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible && !document.hidden) this.raf = window.requestAnimationFrame((t) => this.frame(t));
 		else this.running = false;
 	}
 
@@ -2165,6 +2169,7 @@ export class BrainEngine {
 					if (tz < 0.1) drawPuff(deep, q.x, q.y, q.z, q.r, q.a * 0.7);
 				}
 			}
+			if (deep && this.quality > 0) for (const q of this.fissure) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); // the crease between the hemispheres
 			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
 			for (let i = 0; i < nodes.length; i += step) {
 				const n = nodes[i];
