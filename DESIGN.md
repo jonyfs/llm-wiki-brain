@@ -66,7 +66,7 @@ Type colours (also the legend):
 
 ## Detail and performance
 
-Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark, from an atlas of three sizes (32, 64, 128 px) per type; below 1.1 px a cell is a single dot. Quality also steps down when frames arrive late while the draw itself is quick (the GPU is behind). Drift runs up to 2500 nodes. Links are straight lines above 3500, and then (settled, no drift) their base layer is cached until the view changes.
+Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark, from an atlas of three sizes (32, 64, 128 px) per type; below 1.1 px a cell is a single dot. Quality also steps down when frames arrive late and the draw itself is slow too (the GPU is behind; a throttled window with quick draws does not count). Drift runs up to 2500 nodes. Links are straight lines above 3500, and then (settled, no drift) their base layer is cached until the view changes.
 
 ## Layout
 

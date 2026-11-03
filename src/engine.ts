@@ -1611,7 +1611,7 @@ export class BrainEngine {
 			this.frameMs = ms;
 			return;
 		}
-		this.ema = this.ema * 0.9 + (gap > 0 ? Math.max(ms, gap - 8) : ms) * 0.1;
+		this.ema = this.ema * 0.9 + (gap > 0 ? Math.max(ms, (gap - 8) * Math.min(1, ms / 8)) : ms) * 0.1; // a long gap only counts when the draw itself is not trivial: a window the OS throttles to 30 fps has long gaps and 1 ms draws
 		this.frameMs = this.ema;
 		this.frames++;
 		if (this.frames % 20) return;
