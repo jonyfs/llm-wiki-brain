@@ -2298,6 +2298,7 @@ export class BrainEngine {
 		this.drawBroadcast();
 		this.drawSelection();
 		this.drawLabels(f, fn, nb);
+		this.drawGizmo();
 	}
 
 	private segPoint(seg: [number, number, number, number], t: number): [number, number] {
@@ -2603,6 +2604,34 @@ export class BrainEngine {
 			ctx.fill();
 		}
 		ctx.globalCompositeOperation = "source-over";
+		ctx.globalAlpha = 1;
+	}
+
+	/** A small orientation gizmo in the bottom right corner: the three world axes, turning with the camera, the nearest one drawn last and strongest. */
+	private drawGizmo(): void {
+		if (this.W < 360 || this.H < 300) return;
+		const ctx = this.ctx, dpr = this.dpr, cx = this.W - 44 * dpr, cy = this.H - 92 * dpr, L = 22 * dpr;
+		const axes: [string, number, number, number, string][] = [["x", 1, 0, 0, "239,112,112"], ["y", 0, -1, 0, "120,210,140"], ["z", 0, 0, 1, "110,160,250"]];
+		const pr = axes.map(([name, x, y, z, col]) => {
+			const x1 = x * this.camCy + z * this.camSy, z1 = -x * this.camSy + z * this.camCy;
+			return { name, col, sx: x1, sy: y * this.camCp - z1 * this.camSp, d: y * this.camSp + z1 * this.camCp };
+		}).sort((a, b) => b.d - a.d); // far first
+		ctx.lineCap = "round";
+		ctx.font = "600 " + Math.round(10 * dpr) + "px " + (getComputedStyle(this.canvas).fontFamily || "system-ui, sans-serif");
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		for (const a of pr) {
+			const near = clamp(0.55 - a.d * 0.45, 0.25, 1), ex = cx + a.sx * L, ey = cy + a.sy * L;
+			ctx.globalAlpha = near * 0.8;
+			ctx.strokeStyle = "rgb(" + a.col + ")";
+			ctx.lineWidth = 1.5 * dpr;
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.lineTo(ex, ey);
+			ctx.stroke();
+			ctx.fillStyle = this.labelColor;
+			ctx.fillText(a.name, cx + a.sx * (L + 8 * dpr), cy + a.sy * (L + 8 * dpr));
+		}
 		ctx.globalAlpha = 1;
 	}
 
