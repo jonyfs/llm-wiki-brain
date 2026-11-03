@@ -111,3 +111,13 @@ test("pressing another preset switches to it; invert flips on and off", () => {
 	assert.equal(inv.invert, true);
 	assert.equal(togglePreset(inv, "invert").invert, false);
 });
+
+test("shift+click combines presets and takes one out without touching the rest", async () => {
+	const { combinePreset, presetHas } = await import("../.test-build/filters.mjs");
+	const a = combinePreset(NO_FILTER, "hubs");
+	const b = combinePreset(a, "recent");
+	assert.ok(presetHas(b, "hubs") && presetHas(b, "recent") && b.minDeg === 4 && b.days === 30);
+	const c = combinePreset(b, "hubs");
+	assert.ok(!presetHas(c, "hubs") && presetHas(c, "recent") && c.minDeg === 0);
+	assert.deepEqual(combinePreset(c, "recent"), NO_FILTER);
+});

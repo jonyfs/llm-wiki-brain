@@ -6,7 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { brainPuffs, type Puff } from "./cloud";
+import { brainPuffs, brainSulci, type Puff } from "./cloud";
 import { hashStr, makeDrift, rng } from "./rand";
 import { settleAlpha } from "./layout";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBendInto, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
@@ -340,6 +340,7 @@ export class BrainEngine {
 	private cloudCv: HTMLCanvasElement | null = null;
 	private cloudCtx: CanvasRenderingContext2D | null = null;
 	private puffs: Puff[] = brainPuffs(LOBES, 34);
+	private sulci: Puff[] = brainSulci(LOBES, 5);
 	private puffsLow: Puff[] = brainPuffs(LOBES, 16, 0x5eed + 1);
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
@@ -2093,6 +2094,12 @@ export class BrainEngine {
 				const lit = tx * LX + ty * LY + tz * LZ;
 				if (lit > 0.35) drawPuff(rim, q.x, q.y, q.z, q.r * 0.7, q.a * 0.55 * ((lit - 0.35) / 0.65)); // the side that faces the light catches a rim
 			}
+			if (deep && this.quality > 0) {
+				for (const q of this.sulci) { // grooves between the gyri: only the ones on the near half show
+					const tz = (-q.nx * this.camSy + q.nz * this.camCy) * this.camCp + q.ny * this.camSp; // normal's depth in the view
+					if (tz < 0.1) drawPuff(deep, q.x, q.y, q.z, q.r, q.a * 0.7);
+				}
+			}
 			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
 			for (let i = 0; i < nodes.length; i += step) {
 				const n = nodes[i];
@@ -2377,8 +2384,9 @@ export class BrainEngine {
 		const px: number[] = [], py: number[] = [];
 		for (let i = 0; i < N; i++) {
 			const th = (i / N) * 2 * Math.PI;
-			px.push(Math.cos(th) * k[i]);
-			py.push(Math.sin(th) * k[i]);
+			const wob = 1 + 0.05 * Math.sin(th * 2 + n.drift[4]) + 0.035 * Math.sin(th * 3 + n.drift[5]) + 0.02 * Math.sin(th * 5 + n.drift[6]); // each cell's own lumpy outline, from its path
+			px.push(Math.cos(th) * k[i] * wob);
+			py.push(Math.sin(th) * k[i] * wob);
 		}
 		ctx.save();
 		ctx.translate(n.px, n.py); // the outline is built in unit space: the shared gradient follows the cell
@@ -2406,6 +2414,17 @@ export class BrainEngine {
 		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
+		if (R > 9 * dpr) { // Nissl granules: a few dark specks in the body
+			ctx.globalAlpha = al * 0.28;
+			ctx.fillStyle = this.light ? "rgb(20,30,60)" : "rgb(0,8,20)";
+			ctx.beginPath();
+			for (let g = 0; g < 5; g++) {
+				const a = n.drift[4] * (g + 1) * 1.7, d = 0.25 + 0.4 * ((g * 0.37 + n.drift[5]) % 1);
+				ctx.moveTo(Math.cos(a) * d + 0.07, Math.sin(a) * d);
+				ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 0.07, 0, 6.2832);
+			}
+			ctx.fill();
+		}
 		if (R > 4 * dpr) { // the type mark: circle, rounded square, diamond or triangle, so the type reads without its colour
 			const mk = MARKS[MARK_OF[n.vt] ?? "circle"], st = this.somaStops[n.vt];
 			ctx.globalAlpha = al * 0.6;
@@ -2432,7 +2451,7 @@ export class BrainEngine {
 			return [n.px + rx * k, n.py + ry * k];
 		};
 		for (const used of [false, true]) {
-			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [];
+			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [], beads: number[] = [];
 			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
 			const strip = (pts: number[], wa: number, wb: number) => {
@@ -2449,6 +2468,10 @@ export class BrainEngine {
 				strip(quadPoints(n.px, n.py, cx, cy, tx, ty, arbor ? 7 : 4), w0, w1);
 				tips.push(tx, ty);
 				if (!arbor) continue;
+				for (const bt of [0.42, 0.7]) { // varicosities: small swellings along the branch
+					const q = 1 - bt;
+					beads.push(q * q * n.px + 2 * q * bt * cx + bt * bt * tx, q * q * n.py + 2 * q * bt * cy + bt * bt * ty);
+				}
 				if (!d.kids) d.kids = arborize(d, i, forkP, rng(hashStr(n.path) ^ Math.imul(i + 1, 7919)));
 				for (const kid of d.kids) {
 					if (kid.lvl > 1 && !deep) continue;
@@ -2478,6 +2501,10 @@ export class BrainEngine {
 			for (let i = 0; i < leaves.length; i += 2) {
 				ctx.moveTo(leaves[i] + lr, leaves[i + 1]);
 				ctx.arc(leaves[i], leaves[i + 1], lr, 0, 6.2832);
+			}
+			for (let i = 0; i < beads.length; i += 2) {
+				ctx.moveTo(beads[i] + lr * 1.1, beads[i + 1]);
+				ctx.arc(beads[i], beads[i + 1], lr * 1.1, 0, 6.2832);
 			}
 			ctx.fill();
 		}
@@ -2562,6 +2589,20 @@ export class BrainEngine {
 			ctx.arc(ends[i], ends[i + 1], rr * 2, 0, 6.2832);
 		}
 		ctx.fill();
+		if (R > 6 * dpr) { // growth cones: two short filopodia fan out from every terminal
+			ctx.strokeStyle = "rgba(" + col + "," + al * 0.3 + ")";
+			ctx.lineWidth = Math.max(0.6 * dpr, R * 0.05);
+			ctx.beginPath();
+			for (let i = 0; i < tips.length; i++) {
+				const [tx, ty, dx, dy] = tips[i], L = R * 0.55;
+				for (const sg of [-0.55, 0.55]) {
+					const c = Math.cos(sg), sn = Math.sin(sg);
+					ctx.moveTo(tx, ty);
+					ctx.lineTo(tx + (dx * c - dy * sn) * L, ty + (dx * sn + dy * c) * L);
+				}
+			}
+			ctx.stroke();
+		}
 		ctx.fillStyle = "rgba(" + col + "," + Math.min(0.7, al * 0.7) + ")";
 		ctx.beginPath();
 		for (let i = 0; i < ends.length; i += 2) {
@@ -2594,6 +2635,18 @@ export class BrainEngine {
 				ctx.globalAlpha = clamp(al, 0.1, 1) * 0.16;
 				ctx.beginPath();
 				ctx.arc(x, y, 4.2 * dpr, 0, 6.2832);
+				ctx.fill();
+			}
+			if (s.t > 0.88 && this.quality > 0) { // arriving: a few vesicles spill across the synaptic gap
+				const u = (s.t - 0.88) / 0.12;
+				ctx.fillStyle = tint;
+				ctx.globalAlpha = clamp(al, 0.1, 1) * (1 - u) * 0.8;
+				ctx.beginPath();
+				for (let k = 0; k < 4; k++) {
+					const an = k * 1.57 + s.e, d = u * 7 * dpr;
+					ctx.moveTo(x + Math.cos(an) * d + 0.9 * dpr, y + Math.sin(an) * d);
+					ctx.arc(x + Math.cos(an) * d, y + Math.sin(an) * d, 0.9 * dpr, 0, 6.2832);
+				}
 				ctx.fill();
 			}
 			ctx.globalAlpha = clamp(al, 0.1, 1) * 0.9;

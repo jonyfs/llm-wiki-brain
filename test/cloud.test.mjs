@@ -38,3 +38,15 @@ test("shell puffs carry a unit outward normal, inner puffs none", () => {
 		assert.ok(m === 0 || Math.abs(m - 1) < 1e-6);
 	}
 });
+
+test("sulci stay on the lobe surface and are seeded", async () => {
+	const { brainSulci } = await import("../.test-build/cloud.mjs");
+	const a = brainSulci(LOBES, 5), b = brainSulci(LOBES, 5);
+	assert.deepEqual(a, b);
+	assert.ok(a.length > 100);
+	for (const q of a) {
+		const L = LOBES[q.lobe];
+		const d = Math.hypot((q.x - L.c[0]) / L.r[0], (q.y - L.c[1]) / L.r[1], (q.z - L.c[2]) / L.r[2]);
+		assert.ok(Math.abs(d - 0.97) < 0.02, "on the surface, d=" + d);
+	}
+});
