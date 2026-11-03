@@ -31,6 +31,7 @@ Type colours (also the legend):
 - Glow behind a soma 0.12 dark, 0.08 light; bouton halo 0.06. The soma rim is 0.4.
 - Depth fog: far cells and links melt toward the theme background, up to 0.3.
 - Cloud: each lobe is a swarm of soft puffs in 3D (about 34 per unit of lobe size, 65 to 70% near the surface, seeded), plus one puff per visible page (at most ~220). They are drawn at a quarter of the resolution and scaled up, with far puffs fading by 0.45. Overall opacity 0.62 dark, 0.42 light.
+- Cloud light: shell puffs facing the light (top left, in front) get a lighter rim in the dark theme; inner puffs use a darker sprite, so the valleys read deeper; a faint radial haze sits behind the brain. Spikes are drawn additively in the dark theme.
 - Warning and failure use `--text-warning`; inhibition is a cold dashed ring `rgb(140,175,255)`.
 
 ## Neuron
