@@ -95,3 +95,23 @@ export function neighbourhoodOf(links: [string, string][], path: string, depth: 
 	}
 	return seen;
 }
+
+/* ---- the age controls: a preset or a date, one control ---- */
+
+/** Whole days from a YYYY-MM-DD date back from `now`. 0 (no filter) when the date is empty, invalid or not in the past. */
+export function daysSince(date: string, now: number): number {
+	const t = Date.parse(date);
+	if (!date || Number.isNaN(t)) return 0;
+	const d = Math.ceil((now - t) / 86400000);
+	return d > 0 ? d : 0;
+}
+
+/** The YYYY-MM-DD date `days` before `now` (UTC). */
+export function dateDaysAgo(days: number, now: number): string {
+	return new Date(now - days * 86400000).toISOString().slice(0, 10);
+}
+
+/** What the age select shows for `days`: a preset when it is one, otherwise "custom" (a date was typed). */
+export function ageChoice(days: number, presets: number[]): string {
+	return days === 0 || presets.includes(days) ? String(days) : "custom";
+}

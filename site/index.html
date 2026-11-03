@@ -8,7 +8,7 @@
 <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin" />
 <meta name="format-detection" content="telephone=no" />
 <title>LLM Wiki Brain: see your Obsidian wiki as a living 3D brain</title>
-<meta name="description" content="An Obsidian plugin that shows your wiki as a living 3D brain: pages are neurons, links are synapses, and information flows from the index to every page. Search, filter, replay and export. No network, no telemetry." />
+<meta name="description" content="An Obsidian plugin that shows your wiki as a living 3D brain: pages are neurons, links are synapses, and information flows from the index to every page. A labelled rail, filters you can see, search that folds away, replay and export. No network, no telemetry." />
 <link rel="canonical" href="https://jonyfs.github.io/llm-wiki-brain/" />
 <link rel="alternate" hreflang="en" href="https://jonyfs.github.io/llm-wiki-brain/" />
 <link rel="alternate" hreflang="pt" href="https://jonyfs.github.io/llm-wiki-brain/?lang=pt" />
@@ -25,7 +25,7 @@
 <meta property="og:image" content="https://jonyfs.github.io/llm-wiki-brain/assets/social-preview.png" />
 <meta property="og:image:width" content="1280" />
 <meta property="og:image:height" content="640" />
-<meta property="og:image:alt" content="The LLM Wiki Brain view: a 3D brain of linked pages with a search box, filters and a details panel" />
+<meta property="og:image:alt" content="The LLM Wiki Brain view: a 3D brain of linked pages, a labelled rail with search and filters, and a drawer with the selected page" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="LLM Wiki Brain" />
 <meta name="twitter:description" content="See your Obsidian wiki as a living 3D brain." />
@@ -57,6 +57,7 @@
     <nav class="nav-panel" id="navPanel" aria-label="Primary" data-i18n-attr="aria-label:a.primary">
       <div class="nav-links">
         <a href="#demo" data-i18n="nav.demo">Live demo</a>
+        <a href="#ui" data-i18n="nav.ui">Interface</a>
         <a href="#features" data-i18n="nav.features">Features</a>
         <a href="#neuron" data-i18n="nav.neuron">Neuron model</a>
         <a href="#search" data-i18n="nav.search">Search</a>
@@ -90,9 +91,9 @@
     </div>
     <p class="hero-meta"><span id="mVersion" data-i18n="hero.m0">Obsidian 1.8.7 or newer</span><span data-i18n="hero.m1">Desktop and mobile</span><span data-i18n="hero.m2">No telemetry, no dependencies</span><span data-i18n="hero.m3">EN · PT · ES · FR</span><span id="mStars" hidden></span></p>
     <figure class="shot">
-      <img src="assets/brain.jpg" width="1456" height="835" alt="The plugin's view: a 3D brain of linked pages with type chips and a toolbar on top, a search box with an active filter chip and a result list, a selected page with its inputs and outputs, a legend and a status line" data-i18n-attr="alt:hero.alt" decoding="async" fetchpriority="high" />
+      <img src="assets/brain.jpg" width="1456" height="835" alt="The plugin's view: a 3D brain of linked pages, a rail with search, filters, type chips, quick views and tools, a pill with the active search, and a drawer with the selected page's inputs and outputs" data-i18n-attr="alt:hero.alt" decoding="async" fetchpriority="high" />
     </figure>
-    <p class="shot-cap" data-i18n="hero.shotcap">The plugin's own view on a demo vault: a search with an active filter, a selected page with its inputs and outputs, a Flow wave in motion, the legend and the status line.</p>
+    <p class="shot-cap" data-i18n="hero.shotcap">The plugin's own view on a demo vault: the labelled rail, a search that folded into a pill while it still filters, and a selected page with its inputs and outputs, and how strong each link is, in the drawer.</p>
   </div>
 </header>
 
@@ -100,9 +101,22 @@
   <div class="container">
     <p class="eyebrow" data-i18n="demo.eyebrow">Try it</p>
     <h2 class="section-title" data-i18n="demo.title">The real plugin, running in your browser</h2>
-    <p class="section-sub" data-i18n="demo.sub">This is the plugin's own view and engine on a made-up LLM wiki. Press <strong>Flow</strong> to send information from the index to every page, drag to rotate, click a neuron, type in the search box.</p>
+    <p class="section-sub" data-i18n="demo.sub">This is the plugin's own view and engine on a made-up LLM wiki. Press <strong>Flow</strong> to send information from the index to every page, drag to rotate, click a neuron, open the search from its icon and type.</p>
     <div class="demo-frame" id="demo-frame"><div id="demo-mount" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="demo-loading" data-i18n="demo.loading">Loading the demo…</div></div></div>
     <p class="hint" data-i18n="demo.hint">Tip: <span class="kbd">Alt</span>+drag selects an area, <span class="kbd">?</span> lists the shortcuts. The demo notes are made up; your own notes never leave your machine.</p>
+  </div>
+</section>
+
+<section id="ui">
+  <div class="container">
+    <p class="eyebrow" data-i18n="ui.eyebrow">The interface</p>
+    <h2 class="section-title" data-i18n="ui.title">Easy to find your way</h2>
+    <p class="section-sub" data-i18n="ui.sub">Every control has a label, each filter lives in one place and nothing relies on colour alone. On your first visit a three-step tour shows where Search, Filters and Flow are.</p>
+    <div class="gallery">
+      <figure><img src="assets/ui-filters.jpg" width="1000" height="640" alt="The Filters panel open over the brain, with two active filter chips, a line saying 73 of 89 pages are shown, and the quick views in the rail" data-i18n-attr="alt:ui1.alt" loading="lazy" decoding="async" /><figcaption><h3 data-i18n="ui1.t">Filters, counted and clear</h3><p data-i18n="ui1.p">The Filters button shows how many are on, chips remove them one by one, and a line says how many pages are left.</p></figcaption></figure>
+      <figure><img src="assets/ui-light.jpg" width="1000" height="640" alt="Neurons zoomed in on the light theme, with branching dendrites and a diamond, dot or square mark inside each cell" data-i18n-attr="alt:ui2.alt" loading="lazy" decoding="async" /><figcaption><h3 data-i18n="ui2.t">Light and dark, branching and marked</h3><p data-i18n="ui2.p">Branching dendrites, a mark inside each neuron for its page type, and colours that follow your theme. A colour-blind safe palette is one setting away.</p></figcaption></figure>
+      <figure class="narrow"><img src="assets/ui-narrow.jpg" width="420" height="760" alt="The view in a narrow pane: a top bar with Search and Filters, the type chips, the quick views and the tools unfolded under it, and the brain below" data-i18n-attr="alt:ui3.alt" loading="lazy" decoding="async" /><figcaption><h3 data-i18n="ui3.t">Any pane size</h3><p data-i18n="ui3.p">In a narrow pane the rail becomes a top bar and the panels become sheets at the bottom. Buttons are 44 px on touch.</p></figcaption></figure>
+    </div>
   </div>
 </section>
 
@@ -112,15 +126,18 @@
     <h2 class="section-title" data-i18n="feat.title">A living picture of your wiki</h2>
     <p class="section-sub" data-i18n="feat.sub">Built for LLM wikis (sources, entities, concepts, syntheses, an index and a log) and useful on any vault.</p>
     <div class="grid cards-3">
-      <div class="card"><h3 data-i18n="f1.t">A brain made of your notes</h3><p data-i18n="f1.p">Linked pages share a region of the brain. A soft cloud shows its volume and the neurons fill it, from ten pages to ten thousand.</p></div>
+      <div class="card"><h3 data-i18n="f1.t">A brain made of your notes</h3><p data-i18n="f1.p">Linked pages share a region of the brain. A soft cloud shows its volume and the neurons fill it, from ten pages to ten thousand. Links and axons are 3D curves that turn with the brain, and far cells melt into the background.</p></div>
       <div class="card"><h3 data-i18n="f2.t">Flow: information reaches every page</h3><p data-i18n="f2.p">A wave leaves the index and crosses the links hop by hop, with rings, comets and glowing links, and a counter of the pages reached.</p></div>
       <div class="card"><h3 data-i18n="f3.t">Replay the wiki growing</h3><p data-i18n="f3.p">Watch the pages return in creation order, with what the log recorded each day, a scrubber, speed and loop.</p></div>
-      <div class="card"><h3 data-i18n="f4.t">Search and Ask</h3><p data-i18n="f4.p">Words, <code>tag:</code>, <code>links:&gt;3</code>, <code>edited:&lt;7d</code>, <code>is:orphan</code>, regex. Press Enter to ask: the answer spreads along the links.</p></div>
-      <div class="card"><h3 data-i18n="f5.t">Filters and saved views</h3><p data-i18n="f5.p">Type, folder, tag, links, dates, direction, a filter query and the log. Active filters are chips you remove with one click.</p></div>
+      <div class="card"><h3 data-i18n="f4.t">Search and Ask</h3><p data-i18n="f4.p">Open the search from its icon and type: words, <code>tag:</code>, <code>links:&gt;3</code>, <code>edited:&lt;7d</code>, <code>is:orphan</code>, regex. Enter walks the matches, Ctrl/Cmd+Enter asks and the answer spreads along the links. The box folds away by itself and leaves a pill while it still filters.</p></div>
+      <div class="card"><h3 data-i18n="f5.t">Filters you can see</h3><p data-i18n="f5.p">One home for each filter: quick views in the rail, the switches in the Filters panel, a button that counts what is on, and a line that says "Showing 12 of 214 pages" with a way to clear. Saved views, and a view that reopens as you left it.</p></div>
       <div class="card"><h3 data-i18n="f6.t">Select, isolate, export</h3><p data-i18n="f6.p">Select a group by click, area or lobe; isolate it, copy it as links, turn it into an Obsidian Canvas, or save the view as a PNG.</p></div>
       <div class="card"><h3 data-i18n="f7.t">Lint what is broken</h3><p data-i18n="f7.p">Orphans, broken links and untyped pages get a ring and a clickable list, so the wiki stays healthy.</p></div>
-      <div class="card"><h3 data-i18n="f8.t">Fast and private</h3><p data-i18n="f8.p">Canvas 2D, no network, no telemetry. About 25 ms a frame at 10,000 pages in our synthetic benchmark; full neurons only where they are big enough to see.</p></div>
+      <div class="card"><h3 data-i18n="f8.t">Fast and private</h3><p data-i18n="f8.p">Canvas 2D, no network, no telemetry. The biggest cells on screen get full neurons whatever the vault size and the rest are sprites; the detail adapts to your frame rate.</p></div>
       <div class="card"><h3 data-i18n="f9.t">Four languages</h3><p data-i18n="f9.p">English, Portuguese (Brazil), Spanish and French, following Obsidian's language.</p></div>
+      <div class="card"><h3 data-i18n="f10.t">Neurons that look alive</h3><p data-i18n="f10.p">Branching dendrites, an axon that points at the pages it links to, thicker links when they are stronger, a sheath on the busy roads between hubs, and a dim moment after a page fires.</p></div>
+      <div class="card"><h3 data-i18n="f11.t">Works at any size</h3><p data-i18n="f11.p">A labelled rail that folds on its own in a narrow pane, one drawer for notes, lint and help, and a three-step tour that shows where things are.</p></div>
+      <div class="card"><h3 data-i18n="f12.t">Easy on every eye</h3><p data-i18n="f12.p">Light and dark themes, a colour-blind safe palette, type marks that do not depend on colour, keyboard navigation and screen reader labels.</p></div>
     </div>
   </div>
 </section>
@@ -151,11 +168,13 @@
       <tbody>
         <tr><td data-i18n="r1a">Dendrites</td><td data-i18n="r1b">Inputs: the pages that link to this one</td></tr>
         <tr><td data-i18n="r2a">Axon</td><td data-i18n="r2b">Outputs: the links this page contains</td></tr>
-        <tr><td data-i18n="r3a">Synaptic strength</td><td data-i18n="r3b">How often a link is repeated; links used together grow stronger and fade when idle</td></tr>
+        <tr><td data-i18n="r3a">Synaptic strength</td><td data-i18n="r3b">How often a link is repeated, drawn as thickness; links used together grow stronger and fade when idle</td></tr>
         <tr><td data-i18n="r4a">Firing threshold</td><td data-i18n="r4b">A page fires all-or-nothing when the charge it received reaches a threshold that grows with its inputs; the arc around it shows how close it is</td></tr>
         <tr><td data-i18n="r5a">Inhibition</td><td data-i18n="r5b">A <code>contradicts:</code> link in the frontmatter lowers the target's charge; its spikes are red</td></tr>
-        <tr><td data-i18n="r6a">Myelin</td><td data-i18n="r6b">Links between busy pages conduct faster, in jumps</td></tr>
+        <tr><td data-i18n="r6a">Myelin</td><td data-i18n="r6b">Links between busy pages conduct faster, in jumps, and wear a faint sheath with gaps</td></tr>
         <tr><td data-i18n="r7a">Attention</td><td data-i18n="r7b">Pages that are similar but not linked light up for a moment, with weights</td></tr>
+        <tr><td data-i18n="r8a">Refractory period</td><td data-i18n="r8b">A page that just fired dims for a moment and ignores new input; an inhibited page gets a cold dashed ring</td></tr>
+        <tr><td data-i18n="r9a">Dendritic tree</td><td data-i18n="r9b">Big cells grow branching dendrites; each page type also has a mark (dot, square, diamond, triangle), so it reads without colour</td></tr>
       </tbody>
     </table></div>
   </div>
@@ -165,7 +184,7 @@
   <div class="container">
     <p class="eyebrow" data-i18n="s.eyebrow">Search syntax</p>
     <h2 class="section-title" data-i18n="s.title">Ask your wiki</h2>
-    <p class="section-sub" data-i18n="s.sub">One search box filters, highlights and asks. Press Enter to ask: the answer spreads along the links.</p>
+    <p class="section-sub" data-i18n="s.sub">One search box filters, highlights and asks. Enter walks the matches; Ctrl/Cmd+Enter asks: the answer spreads along the links.</p>
     <div class="table-wrap"><table class="compare">
       <thead><tr><th data-i18n="s.th1">Syntax</th><th data-i18n="s.th2">Meaning</th></tr></thead>
       <tbody>
@@ -201,6 +220,7 @@
           <li data-i18n="k4"><span class="kbd">n</span> / <span class="kbd">p</span> next or previous hub · <span class="kbd">Alt</span>+arrows hop to a neighbour</li>
           <li data-i18n="k5"><span class="kbd">Enter</span> open · <span class="kbd">Cmd/Ctrl</span>+<span class="kbd">Enter</span> open to the side · <span class="kbd">Esc</span> clear</li>
           <li data-i18n="k6"><span class="kbd">?</span> lists every shortcut · right-click for a menu</li>
+          <li data-i18n="k7"><span class="kbd">F</span> filters panel · <span class="kbd">Shift</span>+<span class="kbd">F</span> full screen · <span class="kbd">Cmd/Ctrl</span>+<span class="kbd">Enter</span> in the search asks the brain</li>
         </ul>
       </div>
     </div>
@@ -234,10 +254,11 @@
     <h2 class="section-title" data-i18n="faq.title">Questions</h2>
     <details><summary data-i18n="q1">Does it send my notes anywhere?</summary><p data-i18n="a1">No. The plugin makes no network requests and has no telemetry. The demo on this page uses made-up pages.</p></details>
     <details><summary data-i18n="q2">Does it work on any vault?</summary><p data-i18n="a2">Yes. By default it reads the <code>wiki</code> folder; empty that setting to use the whole vault. A page's type comes from the frontmatter <code>type</code>, then from folder names.</p></details>
-    <details><summary data-i18n="q3">How many pages can it show?</summary><p data-i18n="a3">From a handful to 10,000 (the limit is a setting; the default is 800). A frame takes about 25 ms at 10,000 pages in our synthetic benchmark; your results depend on your machine.</p></details>
+    <details><summary data-i18n="q3">How many pages can it show?</summary><p data-i18n="a3">From a handful to 10,000 (the limit is a setting; the default is 800). The detail adapts to the frame rate: a big vault shows full neurons for the biggest cells on screen and sprites for the rest. The repository has the benchmark notes and how to measure on your machine.</p></details>
     <details><summary data-i18n="q4">Does it work on mobile?</summary><p data-i18n="a4">It is not desktop-only and handles touch (drag, pinch), but it has been tested mostly on desktop.</p></details>
     <details><summary data-i18n="q5">Which languages does it speak?</summary><p data-i18n="a5">English, Portuguese (Brazil), Spanish and French. It follows Obsidian's language, and you can pick another in the settings.</p></details>
     <details><summary data-i18n="q6">Is it related to the LLM Wiki Template?</summary><p data-i18n="a6">Yes, same author. The <a href="https://jonyfs.github.io/llm-wiki-template/">LLM Wiki Template</a> is a starting point for a wiki an AI assistant maintains; this plugin shows that wiki as a brain. This site reuses the template's design system.</p></details>
+    <details><summary data-i18n="q7">Is it colour-blind friendly?</summary><p data-i18n="a7">Yes. Each page type also has a mark inside the neuron (dot, square, diamond, triangle), the settings offer a colour-blind safe palette, and state is never shown by colour alone.</p></details>
   </div>
 </section>
 

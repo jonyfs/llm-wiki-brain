@@ -235,6 +235,15 @@ class BrainSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		new Setting(containerEl)
+			.setName(t("set.palette.name"))
+			.setDesc(t("set.palette.desc"))
+			.addDropdown((d) =>
+				d.addOptions({ default: t("set.palette.default"), colorblind: t("set.palette.colorblind") }).setValue(this.plugin.settings.palette).onChange(async (v) => {
+					this.plugin.settings.palette = v as BrainSettings["palette"];
+					await this.plugin.saveSettings();
+				}),
+			);
 		section(t("set.section.flow"));
 		new Setting(containerEl)
 			.setName(t("set.ambient.name"))

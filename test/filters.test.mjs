@@ -61,3 +61,35 @@ test("applyPreset toggles invert while keeping the rest", () => {
 	assert.deepEqual(applyPreset(base, "invert"), { ...NO_FILTER, folder: "concepts", invert: true });
 	assert.deepEqual(applyPreset({ ...base, invert: true }, "invert"), { ...NO_FILTER, folder: "concepts", invert: false });
 });
+
+import { ageChoice, dateDaysAgo, daysSince } from "../.test-build/filters.mjs";
+
+const T0 = Date.UTC(2026, 10, 2, 12);
+
+test("filters combine with AND, and invert flips the whole result (the documented precedence)", () => {
+	const mk = (path, folder, tags = [], mtime = T0) => ({ path, folder, tags, mtime, ctime: mtime });
+	const pages = [mk("a", "wiki", ["ai"]), mk("b", "wiki", []), mk("c", "raw", ["ai"]), mk("d", "wiki", ["ai"])];
+	const ctx = (extra = null) => ({ degree: () => 2, orphans: new Set(["d"]), neighbourhood: null, extra, now: T0 });
+	const run = (f, c) => [...filterPaths(pages, { ...NO_FILTER, ...f }, c)].sort().join("");
+	assert.equal(run({ folder: "wiki", tag: "ai" }, ctx()), "ad", "folder AND tag");
+	assert.equal(run({ folder: "wiki", tag: "ai", orphansOnly: true }, ctx()), "d", "orphans only is one more condition in the AND");
+	assert.equal(run({ folder: "wiki", tag: "ai" }, ctx(new Set(["a", "b"]))), "a", "a search kept by 'hide non-matches' is one more condition too");
+	assert.equal(run({ folder: "wiki", tag: "ai", invert: true }, ctx()), "bc", "invert shows what the AND would hide");
+	assert.equal(run({ folder: "wiki", tag: "ai", invert: true }, ctx(new Set(["a", "b"]))), "bcd", "invert flips the search condition as well: everything but the one page that passed all of them");
+	assert.equal(filterPaths(pages, { ...NO_FILTER, invert: true }, ctx()), null, "with nothing to filter, invert changes nothing");
+});
+
+test("daysSince and dateDaysAgo are inverses for past dates; empty, invalid and future give no filter", () => {
+	assert.equal(daysSince("", T0), 0);
+	assert.equal(daysSince("not a date", T0), 0);
+	assert.equal(daysSince("2027-01-01", T0), 0, "a future date filters nothing");
+	assert.equal(daysSince("2026-10-25", T0), 9);
+	assert.equal(dateDaysAgo(9, T0), "2026-10-24");
+	assert.ok(daysSince(dateDaysAgo(40, T0), T0) >= 40);
+});
+
+test("ageChoice names a preset or custom", () => {
+	assert.equal(ageChoice(0, [7, 30, 365]), "0");
+	assert.equal(ageChoice(30, [7, 30, 365]), "30");
+	assert.equal(ageChoice(12, [7, 30, 365]), "custom");
+});

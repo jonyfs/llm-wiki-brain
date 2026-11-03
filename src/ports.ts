@@ -132,28 +132,56 @@ export function phiOf(i: number, salt = 0): number {
 	return (((Math.imul(i + 1, 2654435761) ^ Math.imul(salt + 7, 1597334677)) >>> 0) / 4294967296) * 2 * Math.PI;
 }
 
-/** A unit vector perpendicular to the unit vector `a`, turned by `phi` around it. Deterministic; uses world up as the reference unless `a` is nearly vertical. */
-export function perpendicular(a: ArrayLike<number>, phi: number): [number, number, number] {
-	const hx = Math.abs(a[1]) > 0.9 ? 1 : 0, hy = hx ? 0 : 1;
-	let ux = -a[2] * hy, uy = a[2] * hx, uz = a[0] * hy - a[1] * hx;
+/** Writes a unit vector perpendicular to the unit vector (ax, ay, az) into out[0..2], turned by `phi` around it; world up is the reference unless it is nearly vertical. No allocation. */
+export function perpendicularInto(out: { [i: number]: number }, ax: number, ay: number, az: number, phi: number): void {
+	const hx = Math.abs(ay) > 0.9 ? 1 : 0, hy = hx ? 0 : 1;
+	let ux = -az * hy, uy = az * hx, uz = ax * hy - ay * hx;
 	const ul = Math.hypot(ux, uy, uz) || 1;
 	ux /= ul; uy /= ul; uz /= ul;
-	const vx = a[1] * uz - a[2] * uy, vy = a[2] * ux - a[0] * uz, vz = a[0] * uy - a[1] * ux; // a × u
+	const vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux; // a × u
 	const c = Math.cos(phi), s = Math.sin(phi);
-	return [c * ux + s * vx, c * uy + s * vy, c * uz + s * vz];
+	out[0] = c * ux + s * vx;
+	out[1] = c * uy + s * vy;
+	out[2] = c * uz + s * vz;
 }
 
+/** A unit vector perpendicular to the unit vector `a`, turned by `phi` around it. Deterministic. */
+export function perpendicular(a: ArrayLike<number>, phi: number): [number, number, number] {
+	const o: [number, number, number] = [0, 0, 0];
+	perpendicularInto(o, a[0], a[1], a[2], phi);
+	return o;
+}
+
+const NRM = [0, 0, 0];
+
 /**
- * Where a link bulges, on screen. The bulge is a 3D vector perpendicular to the chord (`dx, dy, dz` in world units) of
- * length `bend` times the chord, pointing around the chord by `phi`; `rot` projects a direction (the camera rotation, no
- * perspective) and `scale` is screen pixels per world unit. A bulge pointing at the viewer vanishes, one across the view
- * shows in full: the link turns with the brain instead of staying on one side of the screen chord.
+ * Where a link bulges, on screen, written into out[o], out[o + 1] without allocating (it runs for every link every frame).
+ * The bulge is a 3D vector perpendicular to the chord (`dx, dy, dz`, world units) of length `bend` times the chord, pointing
+ * around the chord by `phi`; `rot` writes the camera projection of a direction (no perspective) and `scale` is screen pixels
+ * per world unit. A bulge pointing at the viewer vanishes, one across the view shows in full.
  */
-export function edgeBend(dx: number, dy: number, dz: number, phi: number, bend: number, rot: (v: number[]) => [number, number], scale: number): [number, number] {
+export function edgeBendInto(out: Float64Array, o: number, dx: number, dy: number, dz: number, phi: number, bend: number, rot: (x: number, y: number, z: number, out: Float64Array, o: number) => void, scale: number): void {
 	const L = Math.hypot(dx, dy, dz);
-	if (L < 1e-9) return [0, 0];
-	const n = perpendicular([dx / L, dy / L, dz / L], phi), [rx, ry] = rot(n), m = clamp(Math.abs(bend) * 0.9, 0, 0.45) * L * scale;
-	return [rx * m, ry * m];
+	if (L < 1e-9) {
+		out[o] = out[o + 1] = 0;
+		return;
+	}
+	perpendicularInto(NRM, dx / L, dy / L, dz / L, phi);
+	rot(NRM[0], NRM[1], NRM[2], out, o);
+	const m = clamp(Math.abs(bend) * 0.9, 0, 0.45) * L * scale;
+	out[o] *= m;
+	out[o + 1] *= m;
+}
+
+/** The same, returning a pair (for tests and one-off use). */
+export function edgeBend(dx: number, dy: number, dz: number, phi: number, bend: number, rot: (v: number[]) => [number, number], scale: number): [number, number] {
+	const out = new Float64Array(2);
+	edgeBendInto(out, 0, dx, dy, dz, phi, bend, (x, y, z, o, k) => {
+		const r = rot([x, y, z]);
+		o[k] = r[0];
+		o[k + 1] = r[1];
+	}, scale);
+	return [out[0], out[1]];
 }
 
 /* ---- the axon, in the cell's own 3D frame (units of the soma radius) ---- */

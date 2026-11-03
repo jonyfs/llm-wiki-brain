@@ -27,6 +27,7 @@ export interface BrainSettings {
 	showPerf: boolean;
 	labelScale: number;
 	ghosts: boolean;
+	palette: "default" | "colorblind";
 	recentRing: boolean;
 	history: string[];
 	lastView: LastView | null; // how the view was left (filters, search, colour, size)
@@ -54,6 +55,7 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	showPerf: false,
 	labelScale: 1,
 	ghosts: true,
+	palette: "default",
 	recentRing: false,
 	history: [],
 	lastView: null,

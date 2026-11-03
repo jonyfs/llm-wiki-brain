@@ -25,3 +25,14 @@ export function coverage(paths: string[], layout: Layout | undefined): number {
 	for (const p of paths) if (layout[p]) known++;
 	return known / paths.length;
 }
+
+/**
+ * How strongly the layout is shaken when a graph arrives (the physics "temperature", 0 to 1):
+ * a mostly new vault gets the full settle, a known one only a gentle one, and each page without a saved place adds a little,
+ * so a note you just added visibly finds its spot instead of snapping into it.
+ */
+export function settleAlpha(known: number, added: number, reducedMotion: boolean): number {
+	if (reducedMotion) return 0;
+	if (known <= 0.7) return 0.6;
+	return Math.min(0.5, 0.1 + Math.max(0, added) * 0.04);
+}

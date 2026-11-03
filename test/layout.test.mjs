@@ -27,3 +27,13 @@ test("coverage is the share of pages with a saved spot", () => {
 	assert.equal(coverage([], { a: [0, 0, 0] }), 0);
 	assert.equal(coverage(["a"], undefined), 0);
 });
+
+import { settleAlpha } from "../.test-build/layout.mjs";
+
+test("settleAlpha: a new vault settles fully, a known one gently, each new page a little more, never past 0.5", () => {
+	assert.equal(settleAlpha(0, 80, false), 0.6);
+	assert.equal(settleAlpha(0.9, 0, false), 0.1);
+	assert.ok(settleAlpha(0.9, 3, false) > settleAlpha(0.9, 1, false));
+	assert.equal(settleAlpha(0.99, 500, false), 0.5);
+	assert.equal(settleAlpha(0.9, 10, true), 0, "reduced motion does not shake the layout");
+});

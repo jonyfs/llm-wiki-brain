@@ -1,6 +1,8 @@
 // A stand-in for the parts of the `obsidian` module that the view and the graph builder use, so the real BrainView,
 // the real engine and the real styles.css can run in a browser page (see ui.ts). It is not Obsidian: it only
 // provides the DOM helpers and classes the plugin calls.
+import { ICONS } from "./icons";
+
 export class TFile {
 	path = "";
 	basename = "";
@@ -9,12 +11,33 @@ export class TFile {
 }
 export class WorkspaceLeaf {}
 export function setIcon(el: HTMLElement, name: string): void {
+	const inner = ICONS[name];
+	if (!inner) return; // like Obsidian: an unknown name draws nothing
 	const span = document.createElement("span");
 	span.className = "obsidian-icon-" + name;
-	span.textContent = name.slice(0, 2);
+	span.style.display = "inline-flex";
+	span.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 	el.appendChild(span);
 }
 export class HoverPopover {}
+export class Modal {
+	contentEl: HTMLElement = document.createElement("div");
+	private host: HTMLElement | null = null;
+	constructor(public app: unknown) {}
+	open(): void {
+		this.host = document.body.appendChild(document.createElement("div"));
+		this.host.className = "modal-container";
+		this.host.appendChild(this.contentEl);
+		this.onOpen();
+	}
+	close(): void {
+		this.host?.remove();
+		this.host = null;
+		this.onClose();
+	}
+	onOpen(): void {}
+	onClose(): void {}
+}
 export class Notice {
 	constructor(public message: string) {
 		(window as unknown as { notices?: string[] }).notices?.push(message);
