@@ -6,6 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
+import { brainPuffs, type Puff } from "./cloud";
 import { hashStr, makeDrift, rng } from "./rand";
 import { settleAlpha } from "./layout";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBendInto, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
@@ -230,11 +231,11 @@ function makeGhost(rgb: string): HTMLCanvasElement {
 	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
-	const gr = g.createRadialGradient(S / 2, S / 2, S * 0.12, S / 2, S / 2, S / 2);
-	// Same cloud as before, only easier to see: a brighter core and a slower fade, still dissolving at the edge.
-	gr.addColorStop(0, "rgba(" + rgb + ",0.34)");
-	gr.addColorStop(0.55, "rgba(" + rgb + ",0.24)");
-	gr.addColorStop(0.85, "rgba(" + rgb + ",0.1)");
+	const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+	// One soft puff: the cloud is many of these overlapping, so each one is faint and dissolves smoothly at its edge.
+	gr.addColorStop(0, "rgba(" + rgb + ",0.2)");
+	gr.addColorStop(0.5, "rgba(" + rgb + ",0.12)");
+	gr.addColorStop(0.8, "rgba(" + rgb + ",0.04)");
 	gr.addColorStop(1, "rgba(" + rgb + ",0)");
 	g.fillStyle = gr;
 	g.fillRect(0, 0, S, S);
@@ -326,12 +327,17 @@ export class BrainEngine {
 	private mutedRGB: Partial<Record<PageType, string>> = {}; // the type colour pulled toward grey: for links, branches and spikes, which must not out-shine the cells
 	private pal = COLORS.dark;
 	private ghost: HTMLCanvasElement | null = null;
+	private cloudCv: HTMLCanvasElement | null = null;
+	private cloudCtx: CanvasRenderingContext2D | null = null;
+	private puffs: Puff[] = brainPuffs(LOBES, 34);
+	private puffsLow: Puff[] = brainPuffs(LOBES, 16, 0x5eed + 1);
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
 	private bgColor = "#0d1017";
 	private edgeFog: string[] = []; // the link colour mixed toward the background, by depth band
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
+	private cloudFog = 0.45; // how much far puffs fade (0 none, 1 vanish)
 	private camCy = 1;
 	private camSy = 0;
 	private camCp = 1;
@@ -1289,7 +1295,7 @@ export class BrainEngine {
 		this.labelColor = cs.getPropertyValue("--text-normal").trim() || (light ? "#222" : "#e8eaf0");
 		this.bgColor = cs.getPropertyValue("--background-primary").trim() || (light ? "#fff" : "#0d1017");
 		this.warnColor = light ? "#b45309" : "#f59e0b";
-		this.ghostAlpha = light ? 0.7 : 0.55;
+		this.ghostAlpha = light ? 0.42 : 0.62;
 		this.light = light;
 		this.boutonColor = light ? "rgb(50,62,86)" : "rgb(176,226,218)";
 		const px = createEl("canvas");
@@ -2005,13 +2011,34 @@ export class BrainEngine {
 
 		if (!this.simpleEdges) this.computeAnchors();
 		if (this.ghost) {
-			ctx.globalAlpha = this.ghostAlpha;
-			for (const L of LOBES) {
-				const x = L.c[0] * this.camCy + L.c[2] * this.camSy, z1 = -L.c[0] * this.camSy + L.c[2] * this.camCy;
-				const y = L.c[1] * this.camCp - z1 * this.camSp, z2 = L.c[1] * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
-				const rx = Math.max(L.r[0], L.r[2]) * 1.08 * p * this.S0, ry = L.r[1] * 1.12 * p * this.S0;
-				ctx.drawImage(this.ghost, this.W / 2 + this.panX + x * p * this.S0 - rx, this.H / 2 + this.panY + y * p * this.S0 - ry, rx * 2, ry * 2);
+			// The cloud is soft, so it is drawn at a quarter of the resolution and scaled up: hundreds of big faint puffs at full size cost far more fill than they are worth.
+			const K = 0.25, cw = Math.max(1, Math.ceil(this.W * K)), ch = Math.max(1, Math.ceil(this.H * K));
+			if (!this.cloudCv) {
+				this.cloudCv = createEl("canvas");
+				this.cloudCtx = this.cloudCv.getContext("2d") as CanvasRenderingContext2D;
 			}
+			if (this.cloudCv.width !== cw || this.cloudCv.height !== ch) {
+				this.cloudCv.width = cw;
+				this.cloudCv.height = ch;
+			} else this.cloudCtx!.clearRect(0, 0, cw, ch);
+			const cc = this.cloudCtx!, fog = this.cloudFog, sc = this.S0 * K, ox = (this.W / 2 + this.panX) * K, oy = (this.H / 2 + this.panY) * K;
+			const puff = (wx: number, wy: number, wz: number, wr: number, a: number) => {
+				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
+				const y = wy * this.camCp - z1 * this.camSp, z2 = wy * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+				if (p <= 0) return;
+				const r = wr * p * sc, depth = clamp((z2 + 260) / 520, 0, 1);
+				cc.globalAlpha = a * (1 - depth * fog);
+				cc.drawImage(this.ghost as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
+			};
+			for (const q of this.quality > 0 ? this.puffs : this.puffsLow) puff(q.x, q.y, q.z, q.r, q.a);
+			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
+			for (let i = 0; i < nodes.length; i += step) {
+				const n = nodes[i];
+				if (!n.off) puff(n.x, n.y, n.z, (26 + Math.sqrt(n.deg) * 3) * Math.sqrt(step), 0.3); // the cloud also gathers where the visible pages are
+			}
+			cc.globalAlpha = 1;
+			ctx.globalAlpha = this.ghostAlpha;
+			ctx.drawImage(this.cloudCv, 0, 0, cw, ch, 0, 0, cw / K, ch / K);
 			ctx.globalAlpha = 1;
 		}
 		const f = this.hovered !== -1 ? this.hovered : this.selected, fn = f >= 0 ? nodes[f] : null;

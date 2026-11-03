@@ -30,6 +30,7 @@ Type colours (also the legend):
 - Link opacity by depth band: 0.14, 0.10, 0.06 (near to far), times 0.75 / 1 / 1.3 for weak / normal / strong links. Width: 0.9 px at 1x, times 0.85 / 1 / 1.45 by strength, thinner with depth.
 - Glow behind a soma 0.12 dark, 0.08 light; bouton halo 0.06. The soma rim is 0.4.
 - Depth fog: far cells and links melt toward the theme background, up to 0.3.
+- Cloud: each lobe is a swarm of soft puffs in 3D (about 34 per unit of lobe size, 65 to 70% near the surface, seeded), plus one puff per visible page (at most ~220). They are drawn at a quarter of the resolution and scaled up, with far puffs fading by 0.45. Overall opacity 0.62 dark, 0.42 light.
 - Warning and failure use `--text-warning`; inhibition is a cold dashed ring `rgb(140,175,255)`.
 
 ## Neuron
