@@ -2145,7 +2145,7 @@ export class BrainEngine {
 				cc.drawImage(sp as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
 			};
 			const LX = -0.5 + 0.22 * Math.sin(this.yaw * 0.5), LY = -0.55, LZ = -0.67; // light from the top left, in front; it slips a little with the camera so the lit side keeps changing as the brain turns
-			const rim = this.ghostRim, deep = this.ghostDeep;
+			const rim = this.quality > 0 ? this.ghostRim : null, deep = this.ghostDeep;
 			const drawPuff = (sp: HTMLCanvasElement, wx: number, wy: number, wz: number, wr: number, a: number) => {
 				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
 				const y = wy * this.camCp - z1 * this.camSp, z2 = wy * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
@@ -2163,13 +2163,13 @@ export class BrainEngine {
 				const lit = tx * LX + ty * LY + tz * LZ;
 				if (lit > 0.35) drawPuff(rim, q.x, q.y, q.z, q.r * 0.7, q.a * 0.55 * ((lit - 0.35) / 0.65)); // the side that faces the light catches a rim
 			}
-			if (deep && this.quality > 0) {
+			if (deep && this.quality > 1) { // grooves and the fissure belong to high quality only: medium and low keep the plain cloud
 				for (const q of this.sulci) { // grooves between the gyri: only the ones on the near half show
 					const tz = (-q.nx * this.camSy + q.nz * this.camCy) * this.camCp + q.ny * this.camSp; // normal's depth in the view
 					if (tz < 0.1) drawPuff(deep, q.x, q.y, q.z, q.r, q.a * 0.7);
 				}
 			}
-			if (deep && this.quality > 0) for (const q of this.fissure) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); // the crease between the hemispheres
+			if (deep && this.quality > 1) for (const q of this.fissure) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); // the crease between the hemispheres
 			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
 			for (let i = 0; i < nodes.length; i += step) {
 				const n = nodes[i];
