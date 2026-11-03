@@ -190,6 +190,12 @@ function hexToRgb(h: string): number[] {
 	return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 }
 
+/** Two "r,g,b" strings blended; amt 0 gives a, 1 gives b. */
+function mixRGB(a: string, b: string, amt: number): string {
+	const x = a.split(",").map(Number), y = b.split(",").map(Number);
+	return x.map((v, i) => Math.round(v + (y[i] - v) * amt)).join(",");
+}
+
 function mix(h: string, t: number[], amt: number): string {
 	const c = hexToRgb(h);
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
@@ -327,6 +333,7 @@ export class BrainEngine {
 	private mutedRGB: Partial<Record<PageType, string>> = {}; // the type colour pulled toward grey: for links, branches and spikes, which must not out-shine the cells
 	private pal = COLORS.dark;
 	private ghost: HTMLCanvasElement | null = null;
+	private ghostTint: (HTMLCanvasElement | null)[] = []; // per page type: the cloud sprite pulled a little toward that colour
 	private ghostRim: HTMLCanvasElement | null = null; // the lit side of the cortex
 	private ghostDeep: HTMLCanvasElement | null = null; // the inside and the valleys, a little darker
 	private cloudCv: HTMLCanvasElement | null = null;
@@ -1321,6 +1328,8 @@ export class BrainEngine {
 			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
 		this.ghost = makeGhost(this.edgeRGB);
+		this.ghostTint = [];
+		for (const t of TYPES) this.ghostTint[TYPES.indexOf(t)] = makeGhost(mixRGB(this.edgeRGB, this.palRGB[t] ?? this.edgeRGB, 0.35));
 		this.ghostRim = light ? null : makeGhost("196,210,255", 1.4); // on a white page a light rim would vanish
 		this.ghostDeep = makeGhost(light ? "70,74,108" : "70,80,112", 1.15);
 		this.cloudKey = ""; // the cloud sprite changed, so the cached bitmap is stale
@@ -1810,6 +1819,13 @@ export class BrainEngine {
 	}
 
 	/** Idle sway only for modest graphs, and never with reduced motion. */
+	/** For each lobe, the page type with the most visible pages in it (0 when the lobe is empty). */
+	private dominantTypes(): number[] {
+		const cnt = LOBES.map(() => TYPES.map(() => 0));
+		for (const n of this.nodes) if (!n.off) cnt[n.lobe][TYPES.indexOf(n.vt)]++;
+		return cnt.map((c) => c.indexOf(Math.max(...c)));
+	}
+
 	private drifting(): boolean {
 		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 2500;
 	}
@@ -2029,9 +2045,10 @@ export class BrainEngine {
 			hz.addColorStop(1, "rgba(" + this.edgeRGB + ",0)");
 			ctx.fillStyle = hz;
 			ctx.fillRect(0, 0, this.W, this.H);
+			const lobeType = this.dominantTypes(); // each lobe takes a little of the colour of the pages it holds
 			let offSum = 0;
 			for (let i = 0; i < nodes.length; i++) if (nodes[i].off) offSum += i + 1;
-			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, cw, ch, this.quality > 0 ? 1 : 0, nodes.length, offSum].join();
+			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, cw, ch, this.quality > 0 ? 1 : 0, nodes.length, offSum, lobeType.join("")].join();
 			const settled = this.alpha < 0.02, fresh = settled && key === this.cloudKey && this.cloudCv.width === cw && this.cloudCv.height === ch;
 			this.cloudKey = settled ? key : "";
 			if (fresh) {
@@ -2044,13 +2061,13 @@ export class BrainEngine {
 				this.cloudCv.height = ch;
 			} else this.cloudCtx!.clearRect(0, 0, cw, ch);
 			const cc = this.cloudCtx!, fog = this.cloudFog, sc = this.S0 * K, ox = (this.W / 2 + this.panX) * K, oy = (this.H / 2 + this.panY) * K;
-			const puff = (wx: number, wy: number, wz: number, wr: number, a: number) => {
+			const puff = (wx: number, wy: number, wz: number, wr: number, a: number, sp: HTMLCanvasElement | null = this.ghost) => {
 				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
 				const y = wy * this.camCp - z1 * this.camSp, z2 = wy * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
 				if (p <= 0) return;
 				const r = wr * p * sc, depth = clamp((z2 + 260) / 520, 0, 1);
 				cc.globalAlpha = a * (1 - depth * fog);
-				cc.drawImage(this.ghost as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
+				cc.drawImage(sp as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
 			};
 			const LX = -0.5, LY = -0.55, LZ = -0.67; // light from the top left, in front
 			const rim = this.ghostRim, deep = this.ghostDeep;
@@ -2064,7 +2081,7 @@ export class BrainEngine {
 			};
 			for (const q of this.quality > 0 ? this.puffs : this.puffsLow) {
 				if (q.nx === 0 && q.ny === 0 && q.nz === 0) { if (deep) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); else puff(q.x, q.y, q.z, q.r, q.a); continue; }
-				puff(q.x, q.y, q.z, q.r, q.a);
+				puff(q.x, q.y, q.z, q.r, q.a, this.ghostTint[lobeType[q.lobe]] ?? this.ghost);
 				if (!rim) continue;
 				const tx = q.nx * this.camCy + q.nz * this.camSy, tz1 = -q.nx * this.camSy + q.nz * this.camCy;
 				const ty = q.ny * this.camCp - tz1 * this.camSp, tz = q.ny * this.camSp + tz1 * this.camCp;
