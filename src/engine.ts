@@ -226,16 +226,16 @@ function makeSprite(color: string, glow: number, core = true, kind = "circle"): 
 	return c;
 }
 
-function makeGhost(rgb: string): HTMLCanvasElement {
+function makeGhost(rgb: string, gain = 1): HTMLCanvasElement {
 	const S = 128;
 	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
 	const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
 	// One soft puff: the cloud is many of these overlapping, so each one is faint and dissolves smoothly at its edge.
-	gr.addColorStop(0, "rgba(" + rgb + ",0.2)");
-	gr.addColorStop(0.5, "rgba(" + rgb + ",0.12)");
-	gr.addColorStop(0.8, "rgba(" + rgb + ",0.04)");
+	gr.addColorStop(0, "rgba(" + rgb + "," + 0.2 * gain + ")");
+	gr.addColorStop(0.5, "rgba(" + rgb + "," + 0.12 * gain + ")");
+	gr.addColorStop(0.8, "rgba(" + rgb + "," + 0.04 * gain + ")");
 	gr.addColorStop(1, "rgba(" + rgb + ",0)");
 	g.fillStyle = gr;
 	g.fillRect(0, 0, S, S);
@@ -327,6 +327,8 @@ export class BrainEngine {
 	private mutedRGB: Partial<Record<PageType, string>> = {}; // the type colour pulled toward grey: for links, branches and spikes, which must not out-shine the cells
 	private pal = COLORS.dark;
 	private ghost: HTMLCanvasElement | null = null;
+	private ghostRim: HTMLCanvasElement | null = null; // the lit side of the cortex
+	private ghostDeep: HTMLCanvasElement | null = null; // the inside and the valleys, a little darker
 	private cloudCv: HTMLCanvasElement | null = null;
 	private cloudCtx: CanvasRenderingContext2D | null = null;
 	private puffs: Puff[] = brainPuffs(LOBES, 34);
@@ -1319,6 +1321,8 @@ export class BrainEngine {
 			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
 		this.ghost = makeGhost(this.edgeRGB);
+		this.ghostRim = light ? null : makeGhost("196,210,255", 1.4); // on a white page a light rim would vanish
+		this.ghostDeep = makeGhost(light ? "70,74,108" : "70,80,112", 1.15);
 		this.cloudKey = ""; // the cloud sprite changed, so the cached bitmap is stale
 		this.start();
 	}
@@ -2020,6 +2024,11 @@ export class BrainEngine {
 				this.cloudCtx = this.cloudCv.getContext("2d") as CanvasRenderingContext2D;
 			}
 			// With the camera still and the layout settled the cloud is the same picture as last frame, so it is not repainted.
+			const hz = ctx.createRadialGradient(this.W / 2 + this.panX, this.H / 2 + this.panY, 0, this.W / 2 + this.panX, this.H / 2 + this.panY, 300 * this.S0);
+			hz.addColorStop(0, "rgba(" + this.edgeRGB + "," + (this.light ? 0.05 : 0.08) + ")"); // a faint haze behind the brain lets it sit in the page instead of on it
+			hz.addColorStop(1, "rgba(" + this.edgeRGB + ",0)");
+			ctx.fillStyle = hz;
+			ctx.fillRect(0, 0, this.W, this.H);
 			let offSum = 0;
 			for (let i = 0; i < nodes.length; i++) if (nodes[i].off) offSum += i + 1;
 			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, cw, ch, this.quality > 0 ? 1 : 0, nodes.length, offSum].join();
@@ -2043,7 +2052,25 @@ export class BrainEngine {
 				cc.globalAlpha = a * (1 - depth * fog);
 				cc.drawImage(this.ghost as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
 			};
-			for (const q of this.quality > 0 ? this.puffs : this.puffsLow) puff(q.x, q.y, q.z, q.r, q.a);
+			const LX = -0.5, LY = -0.55, LZ = -0.67; // light from the top left, in front
+			const rim = this.ghostRim, deep = this.ghostDeep;
+			const drawPuff = (sp: HTMLCanvasElement, wx: number, wy: number, wz: number, wr: number, a: number) => {
+				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
+				const y = wy * this.camCp - z1 * this.camSp, z2 = wy * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
+				if (p <= 0) return;
+				const r = wr * p * sc;
+				cc.globalAlpha = a * (1 - clamp((z2 + 260) / 520, 0, 1) * fog);
+				cc.drawImage(sp, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
+			};
+			for (const q of this.quality > 0 ? this.puffs : this.puffsLow) {
+				if (q.nx === 0 && q.ny === 0 && q.nz === 0) { if (deep) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); else puff(q.x, q.y, q.z, q.r, q.a); continue; }
+				puff(q.x, q.y, q.z, q.r, q.a);
+				if (!rim) continue;
+				const tx = q.nx * this.camCy + q.nz * this.camSy, tz1 = -q.nx * this.camSy + q.nz * this.camCy;
+				const ty = q.ny * this.camCp - tz1 * this.camSp, tz = q.ny * this.camSp + tz1 * this.camCp;
+				const lit = tx * LX + ty * LY + tz * LZ;
+				if (lit > 0.35) drawPuff(rim, q.x, q.y, q.z, q.r * 0.7, q.a * 0.55 * ((lit - 0.35) / 0.65)); // the side that faces the light catches a rim
+			}
 			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
 			for (let i = 0; i < nodes.length; i += step) {
 				const n = nodes[i];
@@ -2506,6 +2533,7 @@ export class BrainEngine {
 
 	private drawSignals(fn: Cell | null, f: number): void {
 		const ctx = this.ctx, dpr = this.dpr;
+		if (!this.light) ctx.globalCompositeOperation = "lighter"; // spikes add light to what they cross
 		for (const s of this.signals) {
 			const ed = this.edges[s.e], a = this.nodes[s.rev ? ed[1] : ed[0]], b = this.nodes[s.rev ? ed[0] : ed[1]];
 			if (a.off || b.off) continue;
@@ -2534,6 +2562,7 @@ export class BrainEngine {
 			ctx.arc(x, y, 1.8 * dpr, 0, 6.2832);
 			ctx.fill();
 		}
+		ctx.globalCompositeOperation = "source-over";
 		ctx.globalAlpha = 1;
 	}
 
