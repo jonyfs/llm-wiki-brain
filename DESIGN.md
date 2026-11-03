@@ -64,7 +64,7 @@ Type colours (also the legend):
 
 ## Detail and performance
 
-Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark. Drift runs up to 2500 nodes. Links are straight lines above 3500.
+Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark. Drift runs up to 2500 nodes. Links are straight lines above 3500, and then (settled, no drift) their base layer is cached until the view changes.
 
 ## Layout
 
