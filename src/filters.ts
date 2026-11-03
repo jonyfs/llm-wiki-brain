@@ -59,6 +59,22 @@ export function presetActive(f: FilterSpec, preset: FilterPreset): boolean {
 		&& e.createdDays === f.createdDays && e.maxDeg === f.maxDeg && e.invert === f.invert && e.op === f.op && e.dir === f.dir;
 }
 
+/** True when every field `preset` sets is set the same way in `f` (other fields may be set too: combined views). */
+export function presetHas(f: FilterSpec, preset: FilterPreset): boolean {
+	if (preset === "invert") return f.invert;
+	const e = applyPreset(NO_FILTER, preset) as unknown as Record<string, unknown>, g = f as unknown as Record<string, unknown>, z = NO_FILTER as unknown as Record<string, unknown>;
+	return Object.keys(e).every((k) => e[k] === z[k] || e[k] === g[k]);
+}
+
+/** Shift+click: add the preset to the active filters, or take just that preset out of them (the other fields stay). */
+export function combinePreset(f: FilterSpec, preset: FilterPreset): FilterSpec {
+	if (preset === "invert") return applyPreset(f, preset);
+	const e = applyPreset(NO_FILTER, preset) as unknown as Record<string, unknown>, z = NO_FILTER as unknown as Record<string, unknown>, out = { ...f } as unknown as Record<string, unknown>;
+	const has = presetHas(f, preset);
+	for (const k of Object.keys(e)) if (e[k] !== z[k]) out[k] = has ? z[k] : e[k];
+	return out as unknown as FilterSpec;
+}
+
 /** A preset button is a toggle: the first click applies it, the next one (while it is the active view) clears it. Invert flips its own flag. */
 export function togglePreset(f: FilterSpec, preset: FilterPreset): FilterSpec {
 	return presetActive(f, preset) && preset !== "invert" ? { ...NO_FILTER } : applyPreset(f, preset);
