@@ -1,5 +1,7 @@
 // Browser harness: the real engine on a synthetic vault, for checking what only shows on screen
 // (lobes, links leaving dendrites, flow, replay). Run: see README.md in this folder.
+import { installDomHelpers } from "./obsidian-shim";
+installDomHelpers(); // createEl and friends, which Obsidian provides as globals
 import { BrainEngine, TYPES } from "../../src/engine";
 
 const canvas = document.getElementById("g") as HTMLCanvasElement;

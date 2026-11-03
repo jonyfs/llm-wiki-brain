@@ -19,7 +19,7 @@ async function mount(autoplay: boolean): Promise<void> {
 	(v as unknown as { app: unknown }).app = app;
 	host.textContent = "";
 	host.appendChild(v.contentEl);
-	v.contentEl.style.cssText = "flex:1;display:flex;flex-direction:row;min-height:0;padding:0";
+	v.contentEl.style.cssText = "flex:1;min-height:0;padding:0";
 	await v.onOpen();
 	view = v;
 	const e = v.engine;

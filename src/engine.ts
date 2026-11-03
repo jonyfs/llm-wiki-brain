@@ -3,11 +3,12 @@
    (index to page packets, ask waves, replay), persistent selection and filters. */
 import { convexHull, neighbourInDirection } from "./hull";
 import { bfsLevels, hopMs } from "./wave";
-import { Net, cascade, conduction, hebb, myelinOf, synapsesOf, Spike } from "./synapse";
+import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { assignPorts as assignPortsPure, edgeCurve, freeDirection, growDendrites } from "./ports";
-import { quadPoints, somaRadii, taperStrip } from "./neuron";
+import { hashStr, makeDrift, rng } from "./rand";
+import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBend, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
+import { arborize, denControl, MARK_OF, markPoly, quadPoints, somaRadii, taperStrip } from "./neuron";
 import type { Den as Dendrite } from "./ports";
 import { once } from "./refresh";
 
@@ -72,6 +73,8 @@ export interface EngineOptions {
 	labelScale?: () => number;
 }
 
+interface AxonGeom { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] }
+
 interface Cell {
 	id: number;
 	path: string;
@@ -94,6 +97,16 @@ interface Cell {
 	sz: number; // size multiplier (the size-by option)
 	deg: number;
 	adj: number[];
+	rx: number; // where the cell is drawn in the world: its place plus the drift
+	ry: number;
+	rz: number;
+	drift: Float64Array; // amplitude, three speeds, three phases: from the page path
+	sc: number; // screen pixels per world unit at this cell's depth
+	ashape: AxonShape | null; // the axon in the cell's own 3D frame
+	axonSeq: number; // the draw that axonG was computed for
+	axonG: AxonGeom | null;
+	refr: number; // until when the cell is recovering from a spike (time, ms)
+	inhib: number; // until when an inhibitory spike is holding it back
 	pulse: number;
 	ps: number; // pulse as drawn: rises fast, then follows `pulse` down smoothly
 	lit: number;
@@ -156,25 +169,13 @@ const COLORS = {
 	light: { source: "#0f766e", entity: "#b45309", concept: "#4338ca", synthesis: "#be185d" },
 };
 
+/** The type marks in unit soma space (the soma outline is drawn scaled by its radius). */
+const MARKS: Record<string, number[]> = { circle: markPoly("circle", 0.24), square: markPoly("square", 0.4), diamond: markPoly("diamond", 0.42), triangle: markPoly("triangle", 0.42) };
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
-function hashStr(s: string): number {
-	let h = 2166136261;
-	for (let i = 0; i < s.length; i++) {
-		h ^= s.charCodeAt(i);
-		h = Math.imul(h, 16777619);
-	}
-	return h >>> 0;
-}
 
-function rng(seed: number): () => number {
-	return () => {
-		seed = (seed + 0x6d2b79f5) | 0;
-		let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
+
 
 function hexToRgb(h: string): number[] {
 	return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -185,7 +186,7 @@ function mix(h: string, t: number[], amt: number): string {
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
 }
 
-function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement {
+function makeSprite(color: string, glow: number, core = true, kind = "circle"): HTMLCanvasElement {
 	const S = 96;
 	const c = createEl("canvas");
 	c.width = c.height = S;
@@ -204,6 +205,14 @@ function makeSprite(color: string, glow: number, core = true): HTMLCanvasElement
 	g.fillStyle = b;
 	g.beginPath();
 	g.arc(S / 2, S / 2, S * 0.22, 0, 6.2832);
+	g.fill();
+	const mk = markPoly(kind as never, S * 0.11); // the type mark, in a darker tone of the type colour
+	g.fillStyle = mix(color, [0, 0, 0], 0.55);
+	g.globalAlpha = 0.6;
+	g.beginPath();
+	g.moveTo(S / 2 + mk[0], S / 2 + mk[1]);
+	for (let i = 2; i < mk.length; i += 2) g.lineTo(S / 2 + mk[i], S / 2 + mk[i + 1]);
+	g.closePath();
 	g.fill();
 	return c;
 }
@@ -288,7 +297,14 @@ export class BrainEngine {
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private ephi = new Float32Array(0); // per link: which way around its chord it bulges, from its two page paths (stable when other links come and go)
+	private myel: number[] = []; // the links worth a sheath, strongest first
+	private ew = new Float32Array(0); // per link: its strength (the stronger direction)
+	private em = new Float32Array(0); // per link: how myelinated it is (0..1)
+	private ebend = new Float64Array(0); // per link: the screen offset of its 3D bulge
+	private rotFn = (v: number[]): [number, number] => this.rotv(v);
 	private somaStops: Partial<Record<PageType, string[]>> = {};
+	private somaGrad: Partial<Record<PageType, CanvasGradient>> = {}; // in unit space: one gradient per type, moved and scaled with the transform
 	private boutonColor = "rgb(230,255,251)";
 	private light = false;
 	private palRGB: Partial<Record<PageType, string>> = {};
@@ -298,6 +314,7 @@ export class BrainEngine {
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
 	private bgColor = "#0d1017";
+	private edgeFog: string[] = []; // the link colour mixed toward the background, by depth band
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
 	private camCy = 1;
@@ -310,13 +327,15 @@ export class BrainEngine {
 	private simpleEdges = false;
 	private simTick = 0;
 	private fullFlags = new Uint8Array(0);
+	private nbBuf = new Uint8Array(0); // neighbours of the focused page, reused every draw
+	private drawSeq = 0;
+	private anyFiltered = false;
 	private candBuf: Cell[] = [];
 	private ema = 4;
 	private slow = 0;
 	private fast = 0;
 	private frames = 0;
 	private frameMs = 0;
-	private lowDetail = false;
 	private reportDrawFailure = once((m) => this.opts.onStatus(m));
 	private portsDirty = true;
 	private anc = new Float64Array(0);
@@ -389,14 +408,15 @@ export class BrainEngine {
 			if (kept && kept.length >= 3) pos = [kept[0], kept[1], kept[2]]; // where it was left last time
 			next.push({
 				id: 0, path: p.path, label: p.label, type: p.type, vt: p.type, sz: 1, ctime: p.ctime, mtime: p.mtime, isIndex: p.isIndex, isLog: p.isLog,
-				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, lit: 0,
+				lobe, side: LOBES[lobe].side, x: pos[0], y: pos[1], z: pos[2], vx: 0, vy: 0, vz: 0, deg: 0, adj: [], pulse: 1, ps: 0, refr: 0, inhib: 0, lit: 0,
 				flag: false, match: false, typeHidden: !!this.hidden[p.type], filtered: false, replayHidden: false, off: false,
-				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0],
+				pinned: this.pinnedSet.has(p.path), px: 0, py: 0, pz: 0, pr: 0, pd: 0, den: this.makeDendrites(p.type, r), port: [], din: 0, axon: [0, 1, 0], rx: 0, ry: 0, rz: 0, drift: makeDrift(p.path), sc: 1, ashape: null, axonSeq: -1, axonG: null,
 			});
 			byPath.set(p.path, next[next.length - 1]);
 		}
 		next.forEach((c, i) => (c.id = i));
 		this.nodes = next;
+		this.anyFiltered = false;
 		this.byPath = byPath;
 		this.order = next.slice();
 		this.edges = [];
@@ -433,6 +453,8 @@ export class BrainEngine {
 			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
 		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 3000 ? 0 : this.nodes.length > 900 ? 1 : 2; // start where a big vault can keep up
+		this.ew = new Float32Array(0); // a new graph: refreshWeights sizes everything again
+		this.refreshWeights();
 		this.applyVisibility();
 		const known = saved ? pages.filter((p) => saved[p.path]).length / Math.max(1, pages.length) : 0;
 		this.alpha = this.opts.reducedMotion ? 0 : known > 0.7 ? 0.1 : 0.6; // mostly known: only settle gently
@@ -466,18 +488,13 @@ export class BrainEngine {
 		};
 		for (let i = 0; i < count; i++) {
 			const d = dir(), a = m[1] + r() * 0.7, b = m[2] + r() * 1.6;
-			const den: Dendrite = {
+			out.push({
 				m: [d[0] * a + jit(), d[1] * a + jit(), d[2] * a + jit()],
 				t: [d[0] * b + jit(), d[1] * b + jit(), d[2] * b + jit()],
-				b: null,
-			};
-			if (r() < m[3]) {
-				const q = dir(), l = 1.2 + r() * 1.2;
-				den.b = [den.m[0] + q[0] * l, den.m[1] + q[1] * l, den.m[2] + q[2] * l];
-			}
-			out.push(den);
+				b: null, // side branches are grown on demand (arborize), m[3] says how branchy this type is
+			});
 		}
-		if (m[4]) out.push({ m: [0.2, -m[4] * 0.55, 0], t: [0, -m[4], 0.2], b: [0.9, -m[4] * 0.8, 0.3] });
+		if (m[4]) out.push({ m: [0.2, -m[4] * 0.55, 0], t: [0, -m[4], 0.2], b: null });
 		return out;
 	}
 
@@ -498,6 +515,7 @@ export class BrainEngine {
 	/** Show only these pages (null shows all). */
 	setFilter(paths: Set<string> | null): void {
 		for (const n of this.nodes) n.filtered = paths !== null && !paths.has(n.path);
+		this.anyFiltered = paths !== null && this.nodes.some((n) => n.filtered);
 		this.applyVisibility();
 	}
 
@@ -936,7 +954,10 @@ export class BrainEngine {
 		// The answer follows the links the way a signal follows axons; charges add up, so a page fed by several matches fires.
 		let spikes: Spike[] = this.net ? cascade(this.net, seeds, 3, 40).filter((sp) => !this.nodes[sp.to].off) : [];
 		if (spikes.length) {
-			if (this.net) hebb(this.net, spikes);
+			if (this.net) {
+				hebb(this.net, spikes);
+				this.refreshWeights();
+			}
 			for (const sp of spikes) this.waves.push({ id: sp.to, from: sp.from, at: now + sp.tick * 420 + Math.random() * 120, fires: sp.fires });
 		} else {
 			const hits = spreadFrom(this.nodes.map((n) => n.adj), this.nodes.map((n) => n.deg), seeds.slice(0, 3), (i) => !this.nodes[i].off, 2, 4, 24);
@@ -1109,27 +1130,35 @@ export class BrainEngine {
 			const c = n as Cell, r = rng(hashStr(c.path) ^ 0x5bd1e995);
 			growDendrites(c.den, this.makeDendrites(c.type, r), want, r);
 		}, (ei, id) => this.edges[ei][0] === id && !this.mutual[ei]); // a one-way link leaves through the axon of the page that holds it
-		for (const n of this.nodes) if (!n.axon || !n.axon.length) n.axon = freeDirection(n.den);
+		for (const n of this.nodes) {
+			if (!n.axon || !n.axon.length) n.axon = freeDirection(n.den);
+			n.ashape = axonShape(n.axon, n.id);
+		}
 		this.portsDirty = false;
 	}
 
 	private denScale(n: Cell): number {
-		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr));
+		return n.pr * Math.min(1, (40 * this.dpr) / (5 * n.pr)) * (1 - 0.18 * n.pd); // far cells have shorter branches
+	}
+
+	/** The axon is drawn only for the big cells of a high-quality frame: the links must start where it ends, or at the soma otherwise. */
+	private axonShown(n: Cell): boolean {
+		return this.fullFlags[n.id] === 1 && this.quality > 1 && n.pr > 6 * this.dpr;
 	}
 
 	private denVisible(n: Cell): boolean {
-		return !this.lowDetail && n.pr > 2.2 * this.dpr;
+		return this.quality > 0 && this.fullFlags[n.id] === 1 && n.pr > 2.2 * this.dpr;
 	}
 
 	/** Screen position where dendrite `di` of `n` ends, and the direction it points. */
 	private anchorOf(n: Cell, di: number, out: Float64Array, o: number): void {
 		if (di < 0) {
-			const tip = this.axonGeom(n)?.tips[-1 - di];
-			if (tip) {
+			if (this.axonShown(n)) {
+				const g = this.axonGeom(n), tip = g.tips[-1 - di] ?? g.tips[0];
 				out[o] = tip[0]; out[o + 1] = tip[1]; out[o + 2] = tip[2]; out[o + 3] = tip[3];
 				return;
 			}
-			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy) || 1; // axon foreshortened: leave from the soma edge
+			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy) || 1; // no axon drawn (a sprite, or low quality): the link leaves the soma edge
 			out[o] = n.px + (vx / l) * n.pr * 0.9; out[o + 1] = n.py + (vy / l) * n.pr * 0.9; out[o + 2] = vx / l; out[o + 3] = vy / l;
 			return;
 		}
@@ -1153,6 +1182,42 @@ export class BrainEngine {
 		const e = this.edges[i];
 		this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 		this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+		this.bendOf(i);
+	}
+
+	/** Reads each link's strength and myelination from the net: the mention count, grown by Hebb after an ask. */
+	private refreshWeights(): void {
+		const E = this.edges.length;
+		if (this.ew.length !== E || this.ephi.length !== E) { // a new graph (setGraph empties ew): size the arrays and fix each link's bulge direction
+			this.ew = new Float32Array(E);
+			this.em = new Float32Array(E);
+			this.ephi = new Float32Array(E);
+			for (let i = 0; i < E; i++) this.ephi[i] = phiOf(hashStr(this.nodes[this.edges[i][0]].path + ">" + this.nodes[this.edges[i][1]].path));
+		}
+		for (let i = 0; i < E; i++) {
+			const e = this.edges[i];
+			let w = 1, m = 0;
+			if (this.net) {
+				const fwd = this.net.out[e[0]].find((x) => x.to === e[1]), back = this.net.out[e[1]].find((x) => x.to === e[0]);
+				w = Math.max(fwd?.w ?? 0, back?.w ?? 0) || 1;
+				m = Math.max(fwd ? myelinOf(this.net, fwd) : 0, back ? myelinOf(this.net, back) : 0);
+			}
+			this.ew[i] = w;
+			this.em[i] = m;
+		}
+		this.myel = [];
+		for (let i = 0; i < E; i++) if (this.em[i] >= 0.55) this.myel.push(i);
+		this.myel.sort((x, y) => this.em[y] - this.em[x]);
+		this.myel.length = Math.min(this.myel.length, 90);
+	}
+
+	/** Where link `i` bulges on screen, from a 3D normal to its chord that turns with the brain (see edgeBend). */
+	private bendOf(i: number): void {
+		if (this.ebend.length < this.edges.length * 2) this.ebend = new Float64Array(this.edges.length * 2);
+		const e = this.edges[i], a = this.nodes[e[0]], b = this.nodes[e[1]];
+		const [bx, by] = edgeBend(b.rx - a.rx, b.ry - a.ry, b.rz - a.rz, this.ephi[i], e[2], this.rotFn, (a.sc + b.sc) / 2);
+		this.ebend[i * 2] = bx;
+		this.ebend[i * 2 + 1] = by;
 	}
 
 	private computeAnchors(): void {
@@ -1161,13 +1226,14 @@ export class BrainEngine {
 			const e = this.edges[i];
 			this.anchorOf(this.nodes[e[0]], e[4], this.anc, i * 8);
 			this.anchorOf(this.nodes[e[1]], e[5], this.anc, i * 8 + 4);
+			this.bendOf(i);
 		}
 	}
 
 	/** The link as a cubic: it leaves each dendrite tip along the branch, then bends toward the other cell. */
 	private ePts(ei: number, fwd: boolean): number[] {
 		if (this.simpleEdges) this.anchorEdge(ei);
-		return edgeCurve(this.anc, ei * 8, fwd, this.edges[ei][2]);
+		return edgeCurve(this.anc, ei * 8, fwd, this.ebend[ei * 2], this.ebend[ei * 2 + 1]);
 	}
 
 	/** A point along a link, soma to dendrite, then the process, then the other dendrite to its soma. */
@@ -1208,10 +1274,22 @@ export class BrainEngine {
 		this.ghostAlpha = light ? 0.7 : 0.55;
 		this.light = light;
 		this.boutonColor = light ? "rgb(50,62,86)" : "rgb(176,226,218)";
+		const px = createEl("canvas");
+		px.width = px.height = 1;
+		const pc = px.getContext("2d") as CanvasRenderingContext2D;
+		pc.fillStyle = this.bgColor;
+		pc.fillRect(0, 0, 1, 1);
+		const bg = Array.from(pc.getImageData(0, 0, 1, 1).data.slice(0, 3)), ec = this.edgeRGB.split(",").map(Number);
+		this.edgeFog = [0, 1, 2].map((q) => ec.map((v, i) => Math.round(v + (bg[i] - v) * q * 0.3)).join(",")); // far links melt into the background
 		for (const t of TYPES) {
-			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16);
+			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
+			const sg = this.ctx.createRadialGradient(-0.25, -0.3, 0.05, 0, 0, 1.25);
+			sg.addColorStop(0, this.somaStops[t]![0]);
+			sg.addColorStop(0.45, this.somaStops[t]![1]);
+			sg.addColorStop(1, this.somaStops[t]![2]);
+			this.somaGrad[t] = sg;
 			this.palRGB[t] = hexToRgb(this.pal[t]).join(",");
 			this.mutedRGB[t] = hexToRgb(this.pal[t]).map((v) => Math.round(v + ((light ? 120 : 110) - v) * 0.5)).join(",");
 		}
@@ -1564,10 +1642,12 @@ export class BrainEngine {
 			if (this.net?.receive(to, s.w)) {
 				tn.pulse = 1;
 				tn.lit = this.tNow + 1800;
+				tn.refr = this.tNow + 600;
 				if (s.gen < 3) for (const o of this.net.fire(to)) this.sendSignal(to, o.to, s.gen + 1);
 				else this.net.fire(to);
 			} else {
 				tn.pulse = Math.max(tn.pulse, s.w < 0 ? 0.1 : 0.25); // charged (or held back by an inhibitory spike), not fired
+				if (s.w < 0) tn.inhib = this.tNow + 900;
 			}
 		}
 		for (let i = this.packets.length - 1; i >= 0; i--) {
@@ -1598,6 +1678,7 @@ export class BrainEngine {
 			if (this.tNow < w.at) continue;
 			const n = this.nodes[w.id];
 			n.pulse = w.fires ? 1 : 0.35;
+			if (w.fires) n.refr = this.tNow + 600;
 			n.lit = this.tNow + (w.fires ? 3200 : 900);
 			if (w.from >= 0 && !this.opts.reducedMotion) this.sendSignal(w.from, w.id, 3);
 			this.waves.splice(i, 1);
@@ -1700,7 +1781,7 @@ export class BrainEngine {
 
 	/** Idle sway only for modest graphs, and never with reduced motion. */
 	private drifting(): boolean {
-		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 600;
+		return !this.opts.reducedMotion && this.quality > 0 && this.nodes.length <= 2500;
 	}
 
 	private project(): void {
@@ -1710,15 +1791,19 @@ export class BrainEngine {
 		const drift = this.drifting();
 		const cx = this.W / 2 + this.panX, cyy = this.H / 2 + this.panY, rk = this.S0 * Math.pow(this.zoom, -0.35) * 0.62;
 		for (const n of this.nodes) {
-			const x1 = n.x * cy + n.z * sy, z1 = -n.x * sy + n.z * cy, y1 = n.y * cp - z1 * sp, z2 = n.y * sp + z1 * cp, p = DIST / (DIST + z2);
+			let wx = n.x, wy = n.y, wz = n.z;
+			if (drift) { // a slow 3D drift in the world, a few units, its own rhythm per cell: render-only (physics, saved layout and ports never see it)
+				const d = n.drift, t = this.tNow;
+				wx += d[0] * Math.sin(d[1] * t + d[4]);
+				wy += d[0] * Math.sin(d[2] * t + d[5]);
+				wz += d[0] * Math.sin(d[3] * t + d[6]);
+			}
+			n.rx = wx; n.ry = wy; n.rz = wz;
+			const x1 = wx * cy + wz * sy, z1 = -wx * sy + wz * cy, y1 = wy * cp - z1 * sp, z2 = wy * sp + z1 * cp, p = DIST / (DIST + z2);
 			n.px = cx + x1 * p * this.S0;
 			n.py = cyy + y1 * p * this.S0;
 			n.pz = z2;
-			if (drift) { // a cell is never perfectly still: a slow, render-only sway (picking and links follow it)
-				const ph = n.id * 2.399963, w = this.tNow * 0.0007;
-				n.px += (Math.sin(w + ph) + 0.5 * Math.sin(w * 1.7 + ph * 2)) * 1.1 * this.dpr;
-				n.py += (Math.cos(w * 0.9 + ph * 1.3) + 0.5 * Math.sin(w * 1.3 + ph)) * 1.1 * this.dpr;
-			}
+			n.sc = p * this.S0;
 			n.pd = clamp((z2 + 260) / 520, 0, 1);
 			n.pr = Math.max(0, (2.1 + Math.sqrt(n.deg) * 1.2 + n.ps * 3.2) * p * rk * (n.isIndex ? 1.5 : 1) * n.sz); // never negative: a page behind the camera must not break an arc
 		}
@@ -1880,10 +1965,26 @@ export class BrainEngine {
 
 	private draw(): void {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
+		this.drawSeq++;
 		ctx.clearRect(0, 0, this.W, this.H);
 		this.project();
-		this.lowDetail = nodes.length > 600 || this.quality === 0;
 		this.simpleEdges = this.edges.length > 3500;
+		const order = this.order;
+		order.sort((p, q) => q.pz - p.pz); // far to near; the sort is adaptive, so a barely changed order costs about one pass
+		// Full neurons are costly (a polygon, a gradient, branches): only the biggest on screen get one, the rest are sprites.
+		// Detail follows the size on screen, not the size of the vault: the biggest cells get dendrites and an axon, however many pages there are.
+		const budget = this.quality > 1 ? 350 : this.quality === 1 ? 140 : 0;
+		if (this.fullFlags.length !== nodes.length) this.fullFlags = new Uint8Array(nodes.length);
+		const full = this.fullFlags; // 1 = gets a full neuron this frame (ties in pr must not defeat the budget); reused, no per-frame allocation
+		full.fill(0);
+		if (order.length > budget) {
+			const on = this.candBuf;
+			on.length = 0;
+			for (const n of order) if (!n.off && n.pr > 4.5 * dpr) on.push(n);
+			if (on.length > budget) on.sort((p, q) => q.pr - p.pr);
+			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
+		} else for (const n of order) full[n.id] = 1;
+
 		if (!this.simpleEdges) this.computeAnchors();
 		if (this.ghost) {
 			ctx.globalAlpha = this.ghostAlpha;
@@ -1896,27 +1997,51 @@ export class BrainEngine {
 			ctx.globalAlpha = 1;
 		}
 		const f = this.hovered !== -1 ? this.hovered : this.selected, fn = f >= 0 ? nodes[f] : null;
-		const nb = new Uint8Array(nodes.length);
+		if (this.nbBuf.length !== nodes.length) this.nbBuf = new Uint8Array(nodes.length);
+		const nb = this.nbBuf;
+		nb.fill(0);
 		if (fn) {
 			nb[f] = 1;
 			for (const j of fn.adj) nb[j] = 1;
 		}
-		const bk: number[][] = [[], [], []], tracts: number[] = [];
+		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
 		for (let i = 0; i < this.edges.length; i++) {
 			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
 			if (a.off || b.off) continue;
 			if (e[3]) tracts.push(i);
-			bk[this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1].push(i);
+			const wq = strengthBand(this.ew[i] || 1);
+			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
 		}
-		ctx.lineWidth = Math.max(1, dpr * 0.9);
-		const dimAll = fn || this.matchActive;
+		const dimAll = fn || this.matchActive, baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
 		for (let q = 2; q >= 0; q--) {
-			if (!bk[q].length) continue;
-			const base = 0.14 - q * 0.04;
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + "," + (dimAll ? base * 0.3 : base) + ")";
+			for (let wq = 0; wq < 3; wq++) {
+				const list = bk[q * 3 + wq];
+				if (!list.length) continue;
+				const base = (0.14 - q * 0.04) * WA[wq];
+				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
+				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
+				ctx.beginPath();
+				this.edgePath(list);
+				ctx.stroke();
+			}
+		}
+		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
+			const cap = ctx.lineCap;
+			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
+			ctx.lineCap = "butt";
+			ctx.lineWidth = baseW * 2.4;
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
 			ctx.beginPath();
-			this.edgePath(bk[q]);
+			for (const i of this.myel) {
+				const e = this.edges[i];
+				if (nodes[e[0]].off || nodes[e[1]].off) continue;
+				const c = this.ePts(i, true);
+				ctx.moveTo(c[0], c[1]);
+				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+			}
 			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.lineCap = cap;
 		}
 		if (tracts.length) {
 			ctx.lineWidth = dpr * 1.4;
@@ -1940,23 +2065,9 @@ export class BrainEngine {
 			ctx.stroke();
 		}
 		this.drawRoutes();
-		const order = this.order;
-		order.sort((p, q) => q.pz - p.pz); // far to near; the sort is adaptive, so a barely changed order costs about one pass
-		const m = 70 * dpr, warn = this.tNow < this.flagUntil, lowDetail = this.lowDetail;
-		// Full neurons are costly (a polygon, a gradient, branches): only the biggest on screen get one, the rest are sprites.
-		const budget = this.quality > 1 ? 350 : this.quality === 1 ? 140 : 0;
-		if (this.fullFlags.length !== nodes.length) this.fullFlags = new Uint8Array(nodes.length);
-		const full = this.fullFlags; // 1 = gets a full neuron this frame (ties in pr must not defeat the budget); reused, no per-frame allocation
-		full.fill(0);
-		if (order.length > budget) {
-			const on = this.candBuf;
-			on.length = 0;
-			for (const n of order) if (!n.off && n.pr > 4.5 * dpr) on.push(n);
-			if (on.length > budget) on.sort((p, q) => q.pr - p.pr);
-			for (let i = 0; i < Math.min(budget, on.length); i++) full[on[i].id] = 1;
-		} else for (const n of order) full[n.id] = 1;
+		const m = 70 * dpr, warn = this.tNow < this.flagUntil;
 		let rings = 400; // pulse rings are a stroke each: a vault that just loaded must not draw ten thousand
-		if (this.ghosts && nodes.some((n) => n.filtered)) { // where the filtered-out pages are: faint dots
+		if (this.ghosts && this.anyFiltered) { // where the filtered-out pages are: faint dots
 			ctx.globalAlpha = 0.2;
 			ctx.fillStyle = "rgb(" + this.edgeRGB + ")";
 			ctx.beginPath();
@@ -1973,8 +2084,8 @@ export class BrainEngine {
 			const dim = (fn && !nb[n.id]) || (this.matchActive && !n.match && n.id !== f);
 			const al = clamp((1 - n.pd * 0.62) * (dim ? 0.16 : 1), 0.05, 1), size = n.pr * 4.55;
 			ctx.globalAlpha = 1;
-			const axonFront = this.rotz(n.axon) < 0, axonOn = !lowDetail && this.quality > 1 && n.pr > 6 * dpr;
-			if (!lowDetail) this.drawDendrites(n, al * 0.65, false);
+			const axonFront = this.rotz(n.axon) < 0, axonOn = this.axonShown(n);
+			this.drawDendrites(n, al * 0.65, false);
 			if (axonOn && !axonFront) this.drawAxon(n, al);
 			ctx.globalAlpha = al;
 			const special = n.id === f || n.id === this.selected || this.tNow < n.lit || (this.matchActive && n.match);
@@ -1986,8 +2097,29 @@ export class BrainEngine {
 				const sp = this.sprites[n.vt];
 				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
 			}
+			if (this.quality > 0 && n.pr > 2 * dpr) {
+				const rf = clamp((n.refr - this.tNow) / 600, 0, 1);
+				const fog = clamp(n.pd * 0.3, 0, 0.3) * (dim ? 0 : 1) + rf * 0.4; // far cells melt toward the background; a cell that just fired dims and desaturates, then comes back
+				if (fog > 0.02) {
+					ctx.globalAlpha = fog * al;
+					ctx.fillStyle = this.bgColor;
+					ctx.beginPath();
+					ctx.arc(n.px, n.py, n.pr * 1.05, 0, 6.2832);
+					ctx.fill();
+				}
+				if (n.inhib > this.tNow && n.pr > 3 * dpr) { // held back by an inhibitory spike: a cold dashed ring
+					ctx.globalAlpha = clamp((n.inhib - this.tNow) / 900, 0, 1) * 0.7 * al;
+					ctx.strokeStyle = "rgb(140,175,255)";
+					ctx.lineWidth = Math.max(1, dpr * 1.1);
+					ctx.setLineDash([2.5 * dpr, 2 * dpr]);
+					ctx.beginPath();
+					ctx.arc(n.px, n.py, n.pr * 1.4 + dpr, 0, 6.2832);
+					ctx.stroke();
+					ctx.setLineDash([]);
+				}
+			}
 			ctx.globalAlpha = 1;
-			if (!lowDetail) this.drawDendrites(n, al * 0.65, true);
+			this.drawDendrites(n, al * 0.65, true);
 			if (axonOn && axonFront) this.drawAxon(n, al);
 			const charge = this.net && this.quality > 0 ? this.net.charge(n.id) : 0;
 			if (charge > 0.04 && n.pr > 3 * dpr) { // membrane potential: the arc closes as the cell nears its threshold
@@ -2129,9 +2261,12 @@ export class BrainEngine {
 		const px: number[] = [], py: number[] = [];
 		for (let i = 0; i < N; i++) {
 			const th = (i / N) * 2 * Math.PI;
-			px.push(n.px + Math.cos(th) * R * k[i]);
-			py.push(n.py + Math.sin(th) * R * k[i]);
+			px.push(Math.cos(th) * k[i]);
+			py.push(Math.sin(th) * k[i]);
 		}
+		ctx.save();
+		ctx.translate(n.px, n.py); // the outline is built in unit space: the shared gradient follows the cell
+		ctx.scale(R, R);
 		ctx.beginPath();
 		ctx.moveTo((px[0] + px[N - 1]) / 2, (py[0] + py[N - 1]) / 2);
 		for (let i = 0; i < N; i++) {
@@ -2139,24 +2274,23 @@ export class BrainEngine {
 			ctx.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
 		}
 		ctx.closePath();
-		const st = this.somaStops[n.vt] ?? ["#fff", "#888", "#000"];
-		const g = ctx.createRadialGradient(n.px - R * 0.25, n.py - R * 0.3, R * 0.05, n.px, n.py, R * 1.25);
-		g.addColorStop(0, st[0]);
-		g.addColorStop(0.45, st[1]);
-		g.addColorStop(1, st[2]);
 		ctx.globalAlpha = al;
-		ctx.fillStyle = g;
+		ctx.fillStyle = this.somaGrad[n.vt] ?? "#888";
 		ctx.fill();
-		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07);
+		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
-		if (R > 7 * dpr) { // nucleus
-			ctx.globalAlpha = al * 0.35;
-			ctx.fillStyle = this.light ? "rgb(255,255,255)" : "rgb(10,70,62)";
+		if (R > 4 * dpr) { // the type mark: circle, rounded square, diamond or triangle, so the type reads without its colour
+			const mk = MARKS[MARK_OF[n.vt] ?? "circle"], st = this.somaStops[n.vt];
+			ctx.globalAlpha = al * 0.6;
+			ctx.fillStyle = this.light ? "rgb(255,255,255)" : (st ? st[2] : "#000");
 			ctx.beginPath();
-			ctx.ellipse(n.px + R * 0.1, n.py + R * 0.05, R * 0.42, R * 0.36, 0, 0, 6.2832);
+			ctx.moveTo(mk[0], mk[1]);
+			for (let i = 2; i < mk.length; i += 2) ctx.lineTo(mk[i], mk[i + 1]);
+			ctx.closePath();
 			ctx.fill();
 		}
+		ctx.restore();
 		ctx.globalAlpha = 1;
 	}
 
@@ -2165,56 +2299,41 @@ export class BrainEngine {
 		const ctx = this.ctx, dpr = this.dpr;
 		if (!this.denVisible(n)) return;
 		const k = this.denScale(n), col = this.mutedRGB[n.vt] ?? "255,255,255";
-		const real = this.quality > 1 && n.pr > 6 * dpr; // spines and branch forks only when the cell is big enough to show them
-		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1);
+		const arbor = this.quality > 1 && n.pr > 6 * dpr, deep = arbor && n.pr > 9 * dpr; // side branches only when the cell is big enough to show them
+		const w0 = n.pr * 0.4, w1 = Math.max(0.5 * dpr, n.pr * 0.1), forkP = MORPH[n.type][3];
+		const pj = (v: number[]): [number, number] => {
+			const [rx, ry] = this.rotv(v);
+			return [n.px + rx * k, n.py + ry * k];
+		};
 		for (const used of [false, true]) {
-			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], spines: number[] = [], forks: number[] = [];
+			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [];
 			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
+			const strip = (pts: number[], wa: number, wb: number) => {
+				const poly = taperStrip(pts, wa, wb);
+				ctx.moveTo(poly[0], poly[1]);
+				for (let j = 2; j < poly.length; j += 2) ctx.lineTo(poly[j], poly[j + 1]);
+				ctx.closePath();
+			};
 			for (let i = 0; i < n.den.length; i++) {
 				if ((n.port[i] ?? 0) > 0 !== used) continue;
 				const d = n.den[i];
 				if (this.rotz(d.t) < 0 !== front) continue; // branches facing away are drawn under the soma, those facing us over it
-				const [r1x, r1y] = this.rotv(d.m), [r2x, r2y] = this.rotv(d.t);
-				const mx = n.px + r1x * k, my = n.py + r1y * k, tx = n.px + r2x * k, ty = n.py + r2y * k;
-				const pts = quadPoints(n.px, n.py, mx + (ty - my) * 0.3, my - (tx - mx) * 0.3, tx, ty, real ? 7 : 4);
-				const poly = taperStrip(pts, w0, w1);
-				ctx.moveTo(poly[0], poly[1]);
-				for (let j = 2; j < poly.length; j += 2) ctx.lineTo(poly[j], poly[j + 1]);
-				ctx.closePath();
-				if (real) {
-					const sl = Math.max(1.4 * dpr, n.pr * 0.22);
-					for (let j = 3; j < pts.length / 2 - 1; j += 2) { // a spine every other point, alternating sides
-						const dx = pts[j * 2 + 2] - pts[j * 2 - 2], dy = pts[j * 2 + 3] - pts[j * 2 - 1], l = Math.hypot(dx, dy) || 1;
-						const side = ((i * 7 + j) & 1) * 2 - 1;
-						spines.push(pts[j * 2], pts[j * 2 + 1], pts[j * 2] - (dy / l) * sl * side, pts[j * 2 + 1] + (dx / l) * sl * side);
-					}
-				}
+				const [tx, ty] = pj(d.t), [cx, cy] = pj(denControl(d, i));
+				strip(quadPoints(n.px, n.py, cx, cy, tx, ty, arbor ? 7 : 4), w0, w1);
 				tips.push(tx, ty);
-				if (d.b && real && !used) {
-					const [r3x, r3y] = this.rotv(d.b);
-					forks.push(mx, my, n.px + r3x * k, n.py + r3y * k);
-					tips.push(n.px + r3x * k, n.py + r3y * k);
+				if (!arbor) continue;
+				if (!d.kids) d.kids = arborize(d, i, forkP, rng(hashStr(n.path) ^ Math.imul(i + 1, 7919)));
+				for (const kid of d.kids) {
+					if (kid.lvl > 1 && !deep) continue;
+					const [ax, ay] = pj(kid.a), [kcx, kcy] = pj(kid.c), [kbx, kby] = pj(kid.b), wk = w0 * kid.wr;
+					strip(quadPoints(ax, ay, kcx, kcy, kbx, kby, 5), wk, Math.max(0.5 * dpr, wk * 0.55));
+					leaves.push(kbx, kby);
 				}
 			}
 			ctx.fill();
-			if (spines.length || forks.length) {
-				ctx.strokeStyle = "rgba(" + col + "," + a + ")";
-				ctx.lineCap = "round";
-				ctx.lineWidth = Math.max(0.6 * dpr, n.pr * 0.06);
-				ctx.beginPath();
-				for (let i = 0; i < spines.length; i += 4) {
-					ctx.moveTo(spines[i], spines[i + 1]);
-					ctx.lineTo(spines[i + 2], spines[i + 3]);
-				}
-				for (let i = 0; i < forks.length; i += 4) {
-					ctx.moveTo(forks[i], forks[i + 1]);
-					ctx.lineTo(forks[i + 2], forks[i + 3]);
-				}
-				ctx.stroke();
-			}
 			const rr = Math.max(0.9 * dpr, n.pr * 0.14) * (used ? 1.3 : 0.8);
-			if (used && real) { // the bouton: a glow, then a bright core
+			if (used && arbor) { // the bouton: a faint halo, then the core
 				ctx.fillStyle = "rgba(" + col + ",0.06)";
 				ctx.beginPath();
 				for (let i = 0; i < tips.length; i += 2) {
@@ -2229,31 +2348,53 @@ export class BrainEngine {
 				ctx.moveTo(tips[i] + rr, tips[i + 1]);
 				ctx.arc(tips[i], tips[i + 1], rr, 0, 6.2832);
 			}
+			const lr = Math.max(0.7 * dpr, n.pr * 0.06); // the ends of the side branches: small beads
+			for (let i = 0; i < leaves.length; i += 2) {
+				ctx.moveTo(leaves[i] + lr, leaves[i + 1]);
+				ctx.arc(leaves[i], leaves[i + 1], lr, 0, 6.2832);
+			}
 			ctx.fill();
 		}
 	}
 
-	/** The axon: a cone where it leaves the soma, one thin process, and a few branches that end in boutons. */
-	/** Shape of the axon on screen: hillock, trunk, and AXON_TIPS terminals as [x, y, dirX, dirY]. Null when it points at the viewer. */
-	private axonGeom(n: Cell): { hx: number; hy: number; ux: number; uy: number; qx: number; qy: number; L: number; cx: number; cy: number; bx: number; by: number; tips: number[][] } | null {
-		const R = n.pr, [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
-		if (l < 0.12) return null; // only when it points straight at (or away from) the viewer
-		const ux = vx / l, uy = vy / l, qx = -uy, qy = ux;
-		const hx = n.px + ux * R * 1.7, hy = n.py + uy * R * 1.7;
-		const L = R * 4.3 * Math.min(1, l + 0.2), ex = hx + ux * L, ey = hy + uy * L, cx = hx + ux * L * 0.5 + qx * R * 0.9, cy = hy + uy * L * 0.5 + qy * R * 0.9;
-		const t = 0.72, u = 1 - t, bx = u * u * hx + 2 * u * t * cx + t * t * ex, by = u * u * hy + 2 * u * t * cy + t * t * ey;
-		const tips: number[][] = [[ex, ey, ux, uy]];
-		for (const sd of [-1, 1]) {
-			const tx = bx + ux * R * 1.2 + qx * R * 1.1 * sd, ty = by + uy * R * 1.2 + qy * R * 1.1 * sd, dx = tx - bx, dy = ty - by, dl = Math.hypot(dx, dy) || 1;
-			tips.push([tx, ty, dx / dl, dy / dl]);
+	/** The axon on screen, projected from its 3D shape: hillock, trunk and AXON_TIPS terminals as [x, y, dirX, dirY]. Computed once per draw; never null (it shortens, it does not vanish, when it points at the viewer). */
+	private axonGeom(n: Cell): AxonGeom {
+		if (n.axonSeq === this.drawSeq && n.axonG) return n.axonG; // asked once per draw: the links and the neuron share it
+		n.axonSeq = this.drawSeq;
+		const g = this.computeAxon(n);
+		n.axonG = g;
+		return g;
+	}
+
+	/** The axon, projected: its 3D points (in soma radii around the centre) go through the same rotation as the dendrites, so it turns with the brain. */
+	private computeAxon(n: Cell): AxonGeom {
+		const R = n.pr, sh = n.ashape ?? (n.ashape = axonShape(n.axon, n.id));
+		const pj = (v: number[]): [number, number] => {
+			const [rx, ry] = this.rotv(v);
+			return [n.px + rx * R, n.py + ry * R];
+		};
+		const [hx, hy] = pj(sh.h), [cx, cy] = pj(sh.c), [ex, ey] = pj(sh.e), [bx, by] = pj(sh.b);
+		let ux = ex - hx, uy = ey - hy, L = Math.hypot(ux, uy);
+		if (L < 1e-3) { // pointing straight at the viewer: the trunk is a dot; keep a direction for the cone
+			const [vx, vy] = this.rotv(n.axon), l = Math.hypot(vx, vy);
+			ux = l > 1e-3 ? vx / l : 1;
+			uy = l > 1e-3 ? vy / l : 0;
+			L = 0;
+		} else {
+			ux /= L;
+			uy /= L;
 		}
-		return { hx, hy, ux, uy, qx, qy, L, cx, cy, bx, by, tips };
+		const tips: number[][] = [];
+		for (let i = 0; i < sh.tips.length; i++) {
+			const [tx, ty] = pj(sh.tips[i]), [dx, dy] = this.rotv(sh.dirs[i]), dl = Math.hypot(dx, dy);
+			tips.push([tx, ty, dl > 1e-3 ? dx / dl : ux, dl > 1e-3 ? dy / dl : uy]);
+		}
+		return { hx, hy, ux, uy, qx: -uy, qy: ux, L, cx, cy, bx, by, tips };
 	}
 
 	private drawAxon(n: Cell, al: number): void {
 		const ctx = this.ctx, dpr = this.dpr, R = n.pr;
 		const g = this.axonGeom(n);
-		if (!g) return;
 		const { hx, hy, ux, uy, qx, qy, cx, cy, bx, by, tips } = g;
 		const col = this.mutedRGB[n.vt] ?? "255,255,255";
 		ctx.fillStyle = "rgba(" + col + "," + al * 0.45 + ")"; // hillock
@@ -2270,10 +2411,10 @@ export class BrainEngine {
 		ctx.moveTo(hx, hy);
 		ctx.quadraticCurveTo(cx, cy, tips[0][0], tips[0][1]);
 		const ends: number[] = [tips[0][0], tips[0][1]];
-		for (const [i, sd] of [[1, -1], [2, 1]]) {
+		for (let i = 1; i < tips.length; i++) {
 			const [tx, ty] = tips[i];
 			ctx.moveTo(bx, by);
-			ctx.quadraticCurveTo(bx + ux * R * 0.5 + qx * R * 0.2 * sd, by + uy * R * 0.5 + qy * R * 0.2 * sd, tx, ty);
+			ctx.quadraticCurveTo((bx + tx) / 2 + ux * R * 0.3, (by + ty) / 2 + uy * R * 0.3, tx, ty);
 			ends.push(tx, ty);
 		}
 		ctx.stroke();

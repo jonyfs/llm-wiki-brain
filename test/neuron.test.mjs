@@ -71,3 +71,55 @@ test("axonDirection with no targets falls back to the free direction", () => {
 	const den = [[3, 0, 0], [-3, 0, 0]].map((t) => ({ m: t, t, b: null }));
 	assert.deepEqual(axonDirection(den, []), freeDirection(den));
 });
+
+import { MARK_OF, arborize, denControl, markPoly, quadAt, quadDir } from "../.test-build/neuron.mjs";
+import { rng } from "../.test-build/rand.mjs";
+
+const len3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+test("quadAt hits both ends and quadDir is a unit vector", () => {
+	const a = [0, 0, 0], c = [1, 2, 0], b = [4, 0, 1];
+	assert.deepEqual(quadAt(a, c, b, 0), a);
+	assert.deepEqual(quadAt(a, c, b, 1), b);
+	for (const u of [0, 0.3, 0.7, 1]) assert.ok(Math.abs(Math.hypot(...quadDir(a, c, b, u)) - 1) < 1e-9);
+});
+
+test("arborize: a page always grows the same tree, thinner at every level, never past the cap", () => {
+	const d = { m: [1.5, 0.5, 0], t: [4, 1, 1], b: null };
+	const k1 = arborize(d, 0, 0.9, rng(5), 3, 9), k2 = arborize(d, 0, 0.9, rng(5), 3, 9);
+	assert.deepEqual(k1, k2);
+	assert.ok(k1.length >= 1 && k1.length <= 9);
+	for (const k of k1) {
+		assert.ok(k.lvl >= 1 && k.lvl <= 3);
+		assert.ok(Math.abs(k.wr - Math.pow(0.63, k.lvl)) < 1e-9, "each level is 63% of the one above (Rall)");
+		assert.ok(len3(k.a, k.b) > 0.1, "has a length");
+	}
+});
+
+test("arborize: levels are capped, and a low forkP grows fewer branches than a high one", () => {
+	const d = { m: [1.5, 0.5, 0], t: [4, 1, 1], b: null };
+	assert.ok(arborize(d, 0, 0.9, rng(2), 1).every((k) => k.lvl === 1));
+	let lo = 0, hi = 0;
+	for (let s = 1; s <= 40; s++) { lo += arborize(d, 0, 0.05, rng(s)).length; hi += arborize(d, 0, 0.95, rng(s)).length; }
+	assert.ok(hi > lo);
+});
+
+test("children start on the parent: the first level begins on the primary curve", () => {
+	const d = { m: [1.5, 0.5, 0], t: [4, 1, 1], b: null }, c = denControl(d, 0);
+	for (const k of arborize(d, 0, 1, rng(9), 1)) {
+		let best = 9;
+		for (let u = 0; u <= 1; u += 0.01) best = Math.min(best, len3(quadAt([0, 0, 0], c, d.t, u), k.a));
+		assert.ok(best < 0.05, "branch point lies on the dendrite");
+	}
+});
+
+test("marks: four types, four different shapes, each inside its radius", () => {
+	const kinds = new Set(Object.values(MARK_OF));
+	assert.equal(kinds.size, 4);
+	for (const kind of kinds) {
+		const p = markPoly(kind, 10);
+		assert.ok(p.length >= 6 && p.length % 2 === 0);
+		for (let i = 0; i < p.length; i += 2) assert.ok(Math.hypot(p[i], p[i + 1]) <= 10 + 1e-9, kind);
+	}
+	assert.notDeepEqual(markPoly("diamond", 5), markPoly("triangle", 5));
+});

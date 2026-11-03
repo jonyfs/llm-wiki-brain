@@ -8,6 +8,31 @@ export interface SavedView {
 
 export const MAX_VIEWS = 20;
 
+/** How the view was left: reopened as it was, so a working cut of the vault does not have to be rebuilt every day. */
+export interface LastView {
+	filters: Record<string, unknown>;
+	q: string;
+	extra: string;
+	hide: boolean;
+	color: string;
+	size: string;
+}
+
+/** Whatever was stored, as a LastView or null. Text is capped; anything that is not the right shape is dropped. */
+export function cleanLastView(raw: unknown): LastView | null {
+	if (!raw || typeof raw !== "object") return null;
+	const v = raw as Partial<LastView>;
+	if (!v.filters || typeof v.filters !== "object" || Array.isArray(v.filters)) return null;
+	return {
+		filters: { ...(v.filters as Record<string, unknown>) },
+		q: typeof v.q === "string" ? v.q.slice(0, 300) : "",
+		extra: typeof v.extra === "string" ? v.extra.slice(0, 300) : "",
+		hide: v.hide === true,
+		color: typeof v.color === "string" ? v.color : "type",
+		size: typeof v.size === "string" ? v.size : "same",
+	};
+}
+
 /** Whatever was stored, as a clean list: objects with a name, filters as an object, at most MAX_VIEWS, no repeated names. */
 export function cleanViews(raw: unknown): SavedView[] {
 	if (!Array.isArray(raw)) return [];
@@ -34,4 +59,15 @@ export function saveView(list: SavedView[], view: SavedView): SavedView[] {
 
 export function removeView(list: SavedView[], name: string): SavedView[] {
 	return list.filter((v) => v.name !== name);
+}
+
+/** Keeps only the keys that exist in `defaults`, and only when the value has the same type (an array stays an array). Whatever else was stored is dropped. */
+export function sanitizeFilters(raw: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const k of Object.keys(defaults)) {
+		const v = raw?.[k], d = defaults[k];
+		if (v === undefined) continue;
+		if (Array.isArray(d) ? Array.isArray(v) : typeof v === typeof d && !(typeof v === "number" && !Number.isFinite(v))) out[k] = v;
+	}
+	return out;
 }

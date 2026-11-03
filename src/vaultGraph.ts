@@ -5,6 +5,7 @@ import { isInhibitoryKey } from "./synapse";
 import type { SavedView } from "./views";
 import { fuzzyScore, matchesQuery, parseQuery } from "./query";
 import type { LangPref } from "./i18n";
+import type { LastView } from "./views";
 
 export interface BrainSettings {
 	wikiRoot: string;
@@ -28,6 +29,8 @@ export interface BrainSettings {
 	ghosts: boolean;
 	recentRing: boolean;
 	history: string[];
+	lastView: LastView | null; // how the view was left (filters, search, colour, size)
+	railCollapsed: boolean; // the rail is expanded (labels) unless the user folded it
 	schema: number;
 }
 
@@ -53,6 +56,8 @@ export const DEFAULT_SETTINGS: BrainSettings = {
 	ghosts: true,
 	recentRing: false,
 	history: [],
+	lastView: null,
+	railCollapsed: false,
 	schema: 3,
 };
 

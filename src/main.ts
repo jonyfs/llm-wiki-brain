@@ -3,7 +3,7 @@ import { Lang, LangPref, LANG_NAMES, LANGS, resolveLang, StringKey, translate, V
 import { BrainView, VIEW_TYPE_BRAIN } from "./view";
 import { BrainSettings, DEFAULT_SETTINGS, matchQuery, buildVaultGraph } from "./vaultGraph";
 import { Layout, pruneLayout } from "./layout";
-import { cleanViews, SavedView } from "./views";
+import { cleanLastView, cleanViews, SavedView } from "./views";
 
 class AskModal extends Modal {
 	constructor(app: App, private t: (key: StringKey, vars?: Vars) => string, private onSubmit: (q: string) => void) {
@@ -132,6 +132,7 @@ export default class BrainPlugin extends Plugin {
 			this.settings.schema = 3;
 			void this.saveData({ ...this.settings, layout: this.layout });
 		}
+		this.settings.lastView = cleanLastView(this.settings.lastView);
 		this.settings.pinned = Array.isArray(this.settings.pinned) ? this.settings.pinned.filter((p) => typeof p === "string") : [];
 		this.refreshLang();
 	}
