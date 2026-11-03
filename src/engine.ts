@@ -1227,7 +1227,15 @@ export class BrainEngine {
 			this.ew = new Float32Array(E);
 			this.em = new Float32Array(E);
 			this.ephi = new Float32Array(E);
-			for (let i = 0; i < E; i++) this.ephi[i] = phiOf(hashStr(this.nodes[this.edges[i][0]].path + ">" + this.nodes[this.edges[i][1]].path));
+			for (let i = 0; i < E; i++) {
+				const a = this.nodes[this.edges[i][0]], b = this.nodes[this.edges[i][1]], own = phiOf(hashStr(a.path + ">" + b.path));
+				// Links between two lobes bulge the same way (their own angle only jitters it): they travel as a bundle instead of a tangle. Reversing the chord turns phi into pi - phi.
+				if (a.lobe === b.lobe) this.ephi[i] = own;
+				else {
+					const lo = Math.min(a.lobe, b.lobe), hi = Math.max(a.lobe, b.lobe), base = phiOf(lo * 16 + hi, 99), jit = (own / 6.2832 - 0.5) * 0.7;
+					this.ephi[i] = a.lobe < b.lobe ? base + jit : Math.PI - base - jit;
+				}
+			}
 		}
 		for (let i = 0; i < E; i++) {
 			const e = this.edges[i];
