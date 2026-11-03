@@ -28,3 +28,13 @@ test("bigger lobes get more puffs, and every lobe gets some", () => {
 	assert.ok(all.length > LOBES.length * 8);
 	assert.ok(lobePuffs(LOBES[0], 5, 1).length === 5);
 });
+
+test("shell puffs carry a unit outward normal, inner puffs none", () => {
+	const L = { c: [0, 0, 0], r: [150, 120, 130], w: 1, side: 0 };
+	const ps = lobePuffs(L, 200, 7);
+	assert.ok(ps.some((q) => q.nx || q.ny || q.nz) && ps.some((q) => !q.nx && !q.ny && !q.nz));
+	for (const q of ps) {
+		const m = Math.hypot(q.nx, q.ny, q.nz);
+		assert.ok(m === 0 || Math.abs(m - 1) < 1e-6);
+	}
+});
