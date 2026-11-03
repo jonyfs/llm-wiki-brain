@@ -98,3 +98,14 @@ Not covered: pointer drags and double-clicks by hand, a real-GPU frame rate, mob
 - Drag rotates (yaw 0.60 to 1.44); the wheel zooms (2.0 to 4.0); a click on a node selects it; a double-click on a node opens its note in a new tab and makes it the active file; a double-click on empty canvas resets the zoom (3.0 to 1.16, rotation kept). Pass.
 
 Still not covered: a real-GPU frame rate (the debug-port window delivers about 300 ms per animation frame, so only per-draw cost is reported) and mobile Obsidian.
+
+### Frame rate on a real GPU (headed Chromium, window in front)
+
+Harness page, 350 nodes, automatic rotation, 180 consecutive animation frames after a 1.5 s warm-up, Intel UHD 630 through ANGLE/Metal, quality settled at 2 in both runs. The machine was busy with other work, so the absolute rate is low; the comparison is the useful part.
+
+| Build | median frame | p95 | rate |
+|---|---|---|---|
+| main (0.14.0 + #33 not applied) | 60.4 ms | 71.1 ms | 16.1 fps |
+| #32 (whole visual set) | 61.3 ms | 79.2 ms | 15.4 fps |
+
+About 1.5% on the median and 11% on the p95: on a real GPU the extra detail is close to free, and the frame is bound by the canvas 2D work on the CPU side either way. Only 350 nodes were measured on the GPU; a 1,200-node run did not finish inside the time limit.
