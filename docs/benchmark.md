@@ -59,4 +59,5 @@ What changed, in the order it mattered:
 
 Pure modules (`buildVaultGraph`, search, filters, routes, communities, the neuron net) are linear: at 10,000 notes the slowest, building the graph, takes about 140 ms on a fake vault, and a search keystroke about 13 ms.
 Note (0.11.0): the table above predates 0.11.0. Since then the biggest cells get full neurons at any vault size, and in a software-rendered headless browser a 10,000-node draw went from about 310-375 ms (0.10.0) to about 450 ms, a 30-45% relative cost. Those absolute numbers are not comparable to the table (different machine, no GPU); the GPU figures were not re-measured.
+Note (0.13.0): the cloud became many soft puffs drawn at a quarter of the resolution. Same software-rendered headless browser, 10,000 nodes: about 414 ms a draw against 396 ms before (+4.5%); at 350 nodes the difference is inside the noise. Not measured on a GPU.
 Open: a draw of 25-33 ms at 10,000 notes is about 35 fps; the next step would be one batched sprite pass per type, or WebGL (see TODOS.md).
