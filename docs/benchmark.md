@@ -65,3 +65,11 @@ Open: a draw of 25-33 ms at 10,000 notes is about 35 fps; the next step would be
 ## Link layer cache (0.15.0)
 
 With more than 3500 links (straight-line mode), a settled brain with no drift keeps its base links in an offscreen layer (one for the normal state, one for the focused state) and redraws them only when the camera, size, filters or link strengths change. Same page, interleaved, 10,000 nodes / 13,328 links, still camera, headless Chromium with software rendering: median 497 ms per draw without the layer, 278 ms with it. Not measured on a GPU. Below 3500 links the dendrite-anchored links move with every pulse, so they are not cached.
+
+## Real Obsidian 1.15.0 (desktop, macOS)
+
+Plugin from #32 installed in a throwaway vault (62 notes, then 1,262 notes; 800 nodes and 3,204 links shown), in a separate Obsidian instance with its own user-data dir and the debug port on 127.0.0.1 only; the real vaults and configuration were not touched. Checked through the app: plugin enables, the view opens with no console error, camera, selection, quick-view toggles (apply, second click clears, Shift+click combines), Flow, reload of the plugin, narrow state.
+
+Found only here: the frame-gap quality rule (item 27) lowered quality from 2 to 1 at 60 nodes while the draw took 1 to 2 ms, because the OS throttles a background window to about 30 fps. Fixed: a long gap now counts only when the draw itself is slow (src/engine.ts, `tune`).
+
+Draw cost per call, 800 nodes, camera moving, median: 35.1 ms on release 0.14.0 (31.7 ms with the window in front) against 43.7 ms with #32 at the highest quality. Per component at the highest quality: sulci, fissure, rim, dark sprite and gizmo cost about 1 ms each; the whole step from quality 2 to 1 is 41.5 ms to 11.4 ms (4.6 ms at 0), so the automatic quality control absorbs the difference (it settles at 1 on this vault). The rAF cadence of a window driven over the debug port was about 300 ms even with the engine idle, so frame rate could not be read there; only per-draw cost is reported.
