@@ -42,6 +42,7 @@ Type colours (also the legend):
 - Dendrites: tapered strips, bowed in 3D. Big cells at high quality grow a tree of side branches, up to three levels, each child 63% as thick as its parent (Rall), at most 9 per primary, seeded by the page path. Ports attach to the primary tips only. No spines, no nucleus.
 - Axon: hillock, a trunk that leans to one side, three terminals, all 3D points around the soma; each terminal serves the link it points toward.
 - Links: a cubic leaving each dendrite or terminal along its branch, bulging in 3D (bend about 4 to 11% of the chord, capped at 45%).
+- Bundling: links between two different lobes all bulge the same way (a shared angle per lobe pair, jittered by 0.35 rad), so they run together as tracts; links inside a lobe keep their own direction.
 - Myelin: the busiest hub-to-hub links wear a faint sheath with gaps (7 px on, 2.5 px off), at most 90.
 
 ## Motion
