@@ -90,3 +90,11 @@ Run on the throwaway vault above (1,262 notes; the view shows at most 800 pages 
 10. Narrow pane: pass (rail stays usable); restoring filters after closing and reopening the view was not exercised: partial.
 
 Not covered: pointer drags and double-clicks by hand, a real-GPU frame rate, mobile Obsidian.
+
+### The two partial steps and the pointer gestures, closed (same Obsidian, 61-note vault, input sent as real mouse events over the debug port)
+
+- Step 7: a note created in the vault adds a neuron (60 to 61) and the neuron pulses. Pass.
+- Step 10: with a quick view active, closing the view and reopening it brings the same filter back (the Hubs button pressed again). Pass.
+- Drag rotates (yaw 0.60 to 1.44); the wheel zooms (2.0 to 4.0); a click on a node selects it; a double-click on a node opens its note in a new tab and makes it the active file; a double-click on empty canvas resets the zoom (3.0 to 1.16, rotation kept). Pass.
+
+Still not covered: a real-GPU frame rate (the debug-port window delivers about 300 ms per animation frame, so only per-draw cost is reported) and mobile Obsidian.
