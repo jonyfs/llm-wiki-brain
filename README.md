@@ -4,7 +4,7 @@ See your wiki as a living 3D brain inside Obsidian. Each page is a neuron, each 
 
 **Website and live demo: https://jonyfs.github.io/llm-wiki-brain/** (the real view and engine running in the browser on a made-up wiki; in English, Portuguese, Spanish and French).
 
-![The plugin's own view on a demo vault: type chips and toolbar at the top, search with an active filter chip and a result list, a selected page with its inputs and outputs, a Flow packet in flight, the legend and the status line](docs/images/brain.jpg)
+![The plugin's own view on a demo vault: type chips and toolbar at the top, search with an active filter chip and a result list, a selected page with its inputs and outputs, a Flow packet in flight and the status line](docs/images/brain.jpg)
 
 *Rendered by the plugin's real view, engine and `styles.css` on a synthetic demo vault (generic LLM-wiki page names), in Obsidian's default dark theme. See `scripts/harness/ui.html`.*
 
@@ -100,7 +100,7 @@ Filters, search, selection and camera are saved with the pane, so the view comes
 
 ## Color, size and legend
 
-In the Filters panel: **Color by** type (default), folder, tag, age or links, and **Size by** links or recency. A legend in the corner names the four colors. Neuron detail (settings): Auto lowers detail when frames get slow, High keeps full neurons, Simple draws spheres.
+In the Filters panel: **Color by** type (default), folder, tag, age or links, and **Size by** links or recency. By type, the Types chips in the rail name the colors; for the other modes a legend in the corner names the four colors. Neuron detail (settings): Auto lowers detail when frames get slow, High keeps full neurons, Simple draws spheres.
 
 ## Export
 
