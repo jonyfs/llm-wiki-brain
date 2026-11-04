@@ -214,6 +214,19 @@ function makeSprite(color: string, glow: number, core = true, kind = "circle", S
 	g.fillStyle = gl;
 	g.fillRect(0, 0, S, S);
 	if (!core) return c;
+	// A distant cell is still a neuron: a few tapered stubs around the soma, so the sprites and the full cells read as one kind of thing.
+	g.fillStyle = mix(color, [128, 134, 160], 0.5);
+	g.globalAlpha = 0.7;
+	for (let i = 0; i < 6; i++) {
+		const a = i * 1.0472 + 0.5 + (i % 2) * 0.22, len = S * (0.38 + (i % 3) * 0.03), w = S * 0.045, ca = Math.cos(a), sa = Math.sin(a);
+		g.beginPath();
+		g.moveTo(S / 2 - sa * w, S / 2 + ca * w);
+		g.lineTo(S / 2 + ca * len, S / 2 + sa * len);
+		g.lineTo(S / 2 + sa * w, S / 2 - ca * w);
+		g.closePath();
+		g.fill();
+	}
+	g.globalAlpha = 1;
 	const b = g.createRadialGradient(S / 2 - S * 0.07, S / 2 - S * 0.08, S * 0.015, S / 2, S / 2, S * 0.22);
 	b.addColorStop(0, mix(color, [255, 255, 255], 0.6));
 	b.addColorStop(0.55, color);
