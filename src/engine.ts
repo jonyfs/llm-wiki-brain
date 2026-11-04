@@ -382,9 +382,6 @@ export class BrainEngine {
 	private anyFiltered = false;
 	private candBuf: Cell[] = [];
 	private ema = 4;
-	private slow = 0;
-	private fast = 0;
-	private frames = 0;
 	private frameMs = 0;
 	private reportDrawFailure = once((m) => this.opts.onStatus(m));
 	private portsDirty = true;
@@ -505,7 +502,7 @@ export class BrainEngine {
 			const x = byPath.get(a), y = byPath.get(b);
 			return x && y ? [[x.id, y.id, counts?.get(a + ">" + b), inhibit?.has(a + ">" + b)] as [number, number, number?, boolean?]] : [];
 		})));
-		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 3000 ? 0 : this.nodes.length > 900 ? 1 : 2; // start where a big vault can keep up
+		if (this.opts.detail() === "auto") this.quality = this.nodes.length > 6000 ? 1 : 2; // the fullest look, fixed for the session: switching levels at run time made cells change shape every few seconds
 		this.ew = new Float32Array(0); // a new graph: refreshWeights sizes everything again
 		this.refreshWeights();
 		this.applyVisibility();
@@ -1618,32 +1615,10 @@ export class BrainEngine {
 	/** `gap` is the time since the previous draw while the user was driving (0 when idle): a canvas cannot read GPU time, but a long gap with a short draw means the GPU is behind. */
 	private tune(ms: number, gap = 0): void {
 		const mode = this.opts.detail();
-		if (mode !== "auto") {
-			this.quality = mode === "high" ? 2 : 0;
-			this.ema = ms;
-			this.frameMs = ms;
-			return;
-		}
 		this.ema = this.ema * 0.9 + (gap > 0 ? Math.max(ms, (gap - 8) * Math.min(1, ms / 8)) : ms) * 0.1; // a long gap only counts when the draw itself is not trivial: a window the OS throttles to 30 fps has long gaps and 1 ms draws
 		this.frameMs = this.ema;
-		this.frames++;
-		if (this.frames % 20) return;
-		if (this.ema > 18) { // over ~55 fps: give up detail, spines and the axon first
-			this.fast = 0;
-			if (++this.slow >= 2 && this.quality > 0) {
-				this.quality--;
-				this.slow = 0;
-			}
-		} else if (this.ema < 9) {
-			this.slow = 0;
-			if (++this.fast >= 10 && this.quality < 2) {
-				this.quality++;
-				this.fast = 0;
-			}
-		} else {
-			this.slow = 0;
-			this.fast = 0;
-		}
+		// The level never changes while the view is open: "auto" keeps the fullest look (picked once from the vault size), "simple" is the only way to trade it for speed.
+		if (mode !== "auto") this.quality = mode === "high" ? 2 : 0;
 	}
 
 	private frame(now: number): void {
