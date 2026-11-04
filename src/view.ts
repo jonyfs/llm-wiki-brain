@@ -1440,10 +1440,10 @@ export class BrainView extends ItemView {
 
 	private renderLegend(labels: string[] | null): void {
 		this.legend.empty();
-		if (!this.engine) return;
+		if (!this.engine || !labels) return; // coloured by type: the Types chips in the rail already name every colour, so the corner stays clear. The key only shows when the colours mean something else (age, links, folder)
 		const typeIcons: Record<PageType, string> = { source: "file-text", entity: "square-user", concept: "lightbulb", synthesis: "sparkles" };
 		TYPES.forEach((type, i) => {
-			const raw = labels ? labels[i] : "@type." + type;
+			const raw = labels[i];
 			if (!raw) return;
 			const row = this.legend.createDiv({ cls: "llm-wiki-brain-legend-row" });
 			const iconSpan = row.createSpan({ cls: "llm-wiki-brain-legend-icon" });

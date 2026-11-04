@@ -17,7 +17,7 @@ An OPERATE interface: a tool you work in, not a page you read. The brain is the 
 
 ## Colour
 
-Type colours (also the legend):
+Type colours (named by the Types chips in the rail; the corner legend appears only for the other colour modes):
 
 | Type | Dark | Light | Mark in the soma |
 |---|---|---|---|

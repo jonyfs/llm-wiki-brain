@@ -1015,6 +1015,9 @@
 	font-size: var(--font-ui-smaller);
 	pointer-events: none;
 }
+.llm-wiki-brain-legend:empty {
+	display: none;
+}
 .llm-wiki-brain-legend-row {
 	display: flex;
 	align-items: center;
