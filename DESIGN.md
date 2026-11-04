@@ -29,19 +29,25 @@ Type colours (also the legend):
 - Links, axons, dendrites and spikes use the type colour pulled halfway to grey (`mutedRGB`) so they never out-shine the cells. Link tint: `108,118,148` dark, `100,104,136` light.
 - Link opacity by depth band: 0.14, 0.10, 0.06 (near to far), times 0.75 / 1 / 1.3 for weak / normal / strong links. Width: 0.9 px at 1x, times 0.85 / 1 / 1.45 by strength, thinner with depth.
 - Glow behind a soma 0.12 dark, 0.08 light; bouton halo 0.06. The soma rim is 0.4.
+- Depth of field: sprite cells in the far 40% spread up to 30% and lose up to 25% opacity.
 - Depth fog: far cells and links melt toward the theme background, up to 0.3.
 - Cloud: each lobe is a swarm of soft puffs in 3D (about 34 per unit of lobe size, 65 to 70% near the surface, seeded), plus one puff per visible page (at most ~220). They are drawn at a quarter of the resolution and scaled up, with far puffs fading by 0.45. Overall opacity 0.62 dark, 0.42 light.
 - Cloud tint: each lobe's puffs are pulled 35% toward the colour of the page type that is most common in it (visible pages only), so a lobe full of sources reads teal.
 - Cloud light: shell puffs facing the light (top left, in front) get a lighter rim in the dark theme; inner puffs use a darker sprite, so the valleys read deeper; a faint radial haze sits behind the brain. Spikes are drawn additively in the dark theme.
+- Links of the focused page run in a gradient from the colour of one end to the colour of the other (0.7). Spike heads are the type colour pulled 55% toward white (toward ink in the light theme). The cloud's lit side shifts a little with the camera yaw.
 - Warning and failure use `--text-warning`; inhibition is a cold dashed ring `rgb(140,175,255)`.
 
 ## Neuron
 
+- Soma detail: each outline is lumpy in its own way (from its path); big cells show a few Nissl specks. Big cells grow beads (varicosities) along their primary branches, and axon terminals fan two short filopodia. An arriving spike spills four vesicles across the gap.
+- Cloud grooves: wandering lines of small dark puffs (sulci) under the surface of each lobe, only on the near half, high quality only. The rim light needs medium or high quality.
+- Fissure: a ring of 40 small dark puffs in the mid-plane marks the crease between the hemispheres (high quality only). The loop also stops while the tab or app is hidden.
 - Soma shading: a radial shade darkens the side away from the light; a firing cell flashes toward white (up to 40%) with its pulse; the selected cell casts a soft shadow below.
 - Soma: an outline pulled toward its main dendrites (22 points), filled with one gradient per type; light from the top left of the screen.
 - Dendrites: tapered strips, bowed in 3D. Big cells at high quality grow a tree of side branches, up to three levels, each child 63% as thick as its parent (Rall), at most 9 per primary, seeded by the page path. Ports attach to the primary tips only. No spines, no nucleus.
 - Axon: hillock, a trunk that leans to one side, three terminals, all 3D points around the soma; each terminal serves the link it points toward.
 - Links: a cubic leaving each dendrite or terminal along its branch, bulging in 3D (bend about 4 to 11% of the chord, capped at 45%).
+- Bundling: links between two different lobes all bulge the same way (a shared angle per lobe pair, jittered by 0.35 rad), so they run together as tracts; links inside a lobe keep their own direction.
 - Myelin: the busiest hub-to-hub links wear a faint sheath with gaps (7 px on, 2.5 px off), at most 90.
 
 ## Motion
@@ -60,7 +66,7 @@ Type colours (also the legend):
 
 ## Detail and performance
 
-Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark. Drift runs up to 2500 nodes. Links are straight lines above 3500.
+Full neurons go to the biggest cells on screen, up to a budget by quality (350 high, 140 medium, none low), whatever the vault size. The rest are sprites with the type mark, from an atlas of three sizes (32, 64, 128 px) per type; below 1.1 px a cell is a single dot. Quality also steps down when frames arrive late and the draw itself is slow too (the GPU is behind; a throttled window with quick draws does not count). Drift runs up to 2500 nodes. Links are straight lines above 3500, and then (settled, no drift) their base layer is cached until the view changes.
 
 ## Layout
 
@@ -69,13 +75,14 @@ Full neurons go to the biggest cells on screen, up to a budget by quality (350 h
 | Rail | 224 px expanded, 52 px folded; three groups under Search and Filters; the choice is remembered; a pane under 640 px folds it into a top bar (Search and Filters labelled, the rest under "more") |
 | Floating search / panel | starts where the rail ends (`--lwb-rail`); a bottom sheet under 640 px |
 | Drawer | right side, 340 px, tabs Note, Lint, Syntax, Shortcuts, one at a time; a bottom sheet under 640 px |
+| Gizmo | three world axes (x red, y green up, z blue) in the bottom right corner of the canvas, turning with the camera, nearest axis strongest; hidden below 360 x 300 px |
 | Strip | "Showing N of M pages, K filters" and Clear; empty result says so |
 | Alerts | `role="alert"` bar above the footer, with Try again |
 | Targets | 32 px minimum with a mouse, 44 px on touch; active-filter chips 24 |
 
 ## Behaviour
 
-- Quick-view buttons (Orphans, Hubs, Recent, New, Sinks, Sources) are toggles: the first click applies the view, a second click while it is active clears it; Invert flips its own flag. Pressing another one switches to it.
+- Quick-view buttons (Orphans, Hubs, Recent, New, Sinks, Sources) are toggles: the first click applies the view, a second click while it is active clears it; Invert flips its own flag. Pressing another one switches to it; Shift+click adds a view to the active ones (or takes just that one out), so Hubs and Recent can be combined.
 - Search: opens from its icon, folds after 10 s without use; Enter next, Shift+Enter previous, Ctrl/Cmd+Enter asks, Esc clears then closes.
 - Shortcuts on the canvas: `f` Filters panel (never while typing, never with Ctrl/Cmd/Alt), `Shift+f` full screen, `?` shortcuts, arrows rotate, `0` `1` `2` `3` camera.
 - The view reopens as it was left (filters, search, colour, size).

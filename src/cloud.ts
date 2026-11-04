@@ -44,3 +44,49 @@ export function brainPuffs(lobes: Lobe[], perUnit: number, seed = 0x5eed): Puff[
 	});
 	return out;
 }
+
+/**
+ * Sulci: wandering lines of small puffs just under each lobe's surface. Drawn in the dark sprite they read as the grooves
+ * between gyri. Seeded; each curve drifts across the ellipsoid in longitude while its latitude weaves.
+ */
+export function lobeSulci(L: Lobe, curves: number, seed: number, lobe = 0): Puff[] {
+	const r = rng(seed), out: Puff[] = [];
+	for (let c = 0; c < curves; c++) {
+		const u0 = r() * 6.2832, v0 = r() * 1.4 - 0.7, du = (r() - 0.5) * 1.8, f = 2 + r() * 3, ph = r() * 6.2832, amp = 0.15 + r() * 0.2;
+		for (let i = 0; i < 9; i++) {
+			const t = i / 8, u = u0 + du * t, v = Math.max(-0.95, Math.min(0.95, v0 + amp * Math.sin(f * t + ph))), s = Math.sqrt(1 - v * v), k = 0.97;
+			const nl = Math.hypot((s * Math.cos(u)) / L.r[0], (s * Math.sin(u)) / L.r[1], v / L.r[2]) || 1;
+			out.push({
+				lobe, x: L.c[0] + L.r[0] * s * Math.cos(u) * k, y: L.c[1] + L.r[1] * s * Math.sin(u) * k, z: L.c[2] + L.r[2] * v * k,
+				r: Math.min(L.r[0], L.r[1], L.r[2]) * 0.13, a: 0.5,
+				nx: (s * Math.cos(u)) / L.r[0] / nl, ny: (s * Math.sin(u)) / L.r[1] / nl, nz: v / L.r[2] / nl,
+			});
+		}
+	}
+	return out;
+}
+
+/** Sulci for every lobe, a few curves per unit of lobe size. */
+export function brainSulci(lobes: Lobe[], perUnit: number, seed = 0x51c1): Puff[] {
+	const out: Puff[] = [];
+	lobes.forEach((L, i) => {
+		const vol = (L.r[0] * L.r[1] * L.r[2]) / (150 * 120 * 130);
+		out.push(...lobeSulci(L, Math.max(1, Math.round(perUnit * Math.cbrt(vol))), seed + i * 613, i));
+	});
+	return out;
+}
+
+/**
+ * The longitudinal fissure: a line of small puffs in the mid-plane (x = 0) following the outline of the hemispheres, drawn dark so a
+ * crease runs between them. Built from the two biggest lobes: the ellipse in y and z they share at the middle.
+ */
+export function fissurePuffs(lobes: Lobe[]): Puff[] {
+	const hemis = lobes.filter((l) => l.side !== 0).sort((a, b) => b.r[0] * b.r[1] * b.r[2] - a.r[0] * a.r[1] * a.r[2]);
+	if (!hemis.length) return [];
+	const H = hemis[0], out: Puff[] = [];
+	for (let i = 0; i < 40; i++) {
+		const t = (i / 40) * 6.2832;
+		out.push({ lobe: 0, x: 0, y: H.c[1] + H.r[1] * 0.95 * Math.sin(t), z: H.c[2] + H.r[2] * 0.95 * Math.cos(t), r: 9, a: 0.55, nx: 0, ny: 0, nz: 0 });
+	}
+	return out;
+}

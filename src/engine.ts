@@ -6,7 +6,7 @@ import { bfsLevels, hopMs } from "./wave";
 import { Net, cascade, conduction, hebb, myelinOf, strengthBand, synapsesOf, Spike } from "./synapse";
 import { assignLobes, countBefore, creationOrder, findRoute, spreadFrom } from "./route";
 import { LOBES, LOBE_SUM, simStep as stepPhysics } from "./physics";
-import { brainPuffs, type Puff } from "./cloud";
+import { brainPuffs, brainSulci, fissurePuffs, type Puff } from "./cloud";
 import { hashStr, makeDrift, rng } from "./rand";
 import { settleAlpha } from "./layout";
 import { assignPorts as assignPortsPure, axonShape, AxonShape, edgeBendInto, edgeCurve, freeDirection, growDendrites, phiOf } from "./ports";
@@ -201,8 +201,9 @@ function mix(h: string, t: number[], amt: number): string {
 	return "rgb(" + c.map((v, i) => Math.round(v + (t[i] - v) * amt)).join(",") + ")";
 }
 
-function makeSprite(color: string, glow: number, core = true, kind = "circle"): HTMLCanvasElement {
-	const S = 96;
+const SPRITE_SIZES = [32, 64, 128];
+
+function makeSprite(color: string, glow: number, core = true, kind = "circle", S = 96): HTMLCanvasElement {
 	const c = createEl("canvas");
 	c.width = c.height = S;
 	const g = c.getContext("2d") as CanvasRenderingContext2D;
@@ -311,6 +312,7 @@ export class BrainEngine {
 	private ro: ResizeObserver;
 	private io: IntersectionObserver | null = null;
 	private sprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
+	private spriteAtlas: Partial<Record<PageType, HTMLCanvasElement[]>> = {}; // per type, three sizes (32, 64, 128 px): a small cell never shrinks a big bitmap, a big one never stretches a small bitmap
 	private glowSprites: Partial<Record<PageType, HTMLCanvasElement>> = {};
 	private ephi = new Float32Array(0); // per link: which way around its chord it bulges, from its two page paths (stable when other links come and go)
 	private myel: number[] = []; // the links worth a sheath, strongest first
@@ -340,6 +342,8 @@ export class BrainEngine {
 	private cloudCv: HTMLCanvasElement | null = null;
 	private cloudCtx: CanvasRenderingContext2D | null = null;
 	private puffs: Puff[] = brainPuffs(LOBES, 34);
+	private sulci: Puff[] = brainSulci(LOBES, 5);
+	private fissure: Puff[] = fissurePuffs(LOBES);
 	private puffsLow: Puff[] = brainPuffs(LOBES, 16, 0x5eed + 1);
 	private edgeRGB = "139,151,255";
 	private labelColor = "#e8eaf0";
@@ -348,6 +352,7 @@ export class BrainEngine {
 	private warnColor = "#f59e0b";
 	private ghostAlpha = 0.55;
 	private cloudFog = 0.45; // how much far puffs fade (0 none, 1 vanish)
+	private linkLayers: ({ cv: HTMLCanvasElement; key: string } | undefined)[] = []; // cached base links for a settled, still brain with thousands of links: [not focused, focused]
 	private cloudKey = ""; // what the cloud bitmap was last painted for; while it is unchanged the bitmap is reused
 	private camCy = 1;
 	private camSy = 0;
@@ -385,6 +390,9 @@ export class BrainEngine {
 			});
 			this.io.observe(canvas);
 		}
+		const onVis = () => { if (!document.hidden) this.start(); }; // a hidden tab draws nothing; coming back restarts the loop
+		document.addEventListener("visibilitychange", onVis);
+		this.cleanups.push(() => document.removeEventListener("visibilitychange", onVis));
 		this.bind();
 		this.readTheme();
 		this.resize();
@@ -1226,7 +1234,15 @@ export class BrainEngine {
 			this.ew = new Float32Array(E);
 			this.em = new Float32Array(E);
 			this.ephi = new Float32Array(E);
-			for (let i = 0; i < E; i++) this.ephi[i] = phiOf(hashStr(this.nodes[this.edges[i][0]].path + ">" + this.nodes[this.edges[i][1]].path));
+			for (let i = 0; i < E; i++) {
+				const a = this.nodes[this.edges[i][0]], b = this.nodes[this.edges[i][1]], own = phiOf(hashStr(a.path + ">" + b.path));
+				// Links between two lobes bulge the same way (their own angle only jitters it): they travel as a bundle instead of a tangle. Reversing the chord turns phi into pi - phi.
+				if (a.lobe === b.lobe) this.ephi[i] = own;
+				else {
+					const lo = Math.min(a.lobe, b.lobe), hi = Math.max(a.lobe, b.lobe), base = phiOf(lo * 16 + hi, 99), jit = (own / 6.2832 - 0.5) * 0.7;
+					this.ephi[i] = a.lobe < b.lobe ? base + jit : Math.PI - base - jit;
+				}
+			}
 		}
 		for (let i = 0; i < E; i++) {
 			const e = this.edges[i];
@@ -1322,6 +1338,7 @@ export class BrainEngine {
 		this.somaShade = sh;
 		for (const t of TYPES) {
 			this.sprites[t] = makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t]);
+			this.spriteAtlas[t] = SPRITE_SIZES.map((S) => makeSprite(this.pal[t], light ? 0.1 : 0.16, true, MARK_OF[t], S));
 			this.glowSprites[t] = makeSprite(this.pal[t], light ? 0.08 : 0.12, false);
 			this.somaStops[t] = [mix(this.pal[t], [255, 255, 255], 0.75), this.pal[t], mix(this.pal[t], [0, 0, 0], 0.5)];
 			const sg = this.ctx.createRadialGradient(-0.25, -0.3, 0.05, 0, 0, 1.25);
@@ -1570,7 +1587,7 @@ export class BrainEngine {
 	/* ---------- Loop ---------- */
 
 	start(): void {
-		if (this.running || !this.visible) return;
+		if (this.running || !this.visible || document.hidden) return;
 		this.running = true;
 		this.last = performance.now();
 		this.raf = window.requestAnimationFrame((t) => this.frame(t));
@@ -1585,7 +1602,8 @@ export class BrainEngine {
 		this.cleanups = [];
 	}
 
-	private tune(ms: number): void {
+	/** `gap` is the time since the previous draw while the user was driving (0 when idle): a canvas cannot read GPU time, but a long gap with a short draw means the GPU is behind. */
+	private tune(ms: number, gap = 0): void {
 		const mode = this.opts.detail();
 		if (mode !== "auto") {
 			this.quality = mode === "high" ? 2 : 0;
@@ -1593,7 +1611,7 @@ export class BrainEngine {
 			this.frameMs = ms;
 			return;
 		}
-		this.ema = this.ema * 0.9 + ms * 0.1;
+		this.ema = this.ema * 0.9 + (gap > 0 ? Math.max(ms, (gap - 8) * Math.min(1, ms / 8)) : ms) * 0.1; // a long gap only counts when the draw itself is not trivial: a window the OS throttles to 30 fps has long gaps and 1 ms draws
 		this.frameMs = this.ema;
 		this.frames++;
 		if (this.frames % 20) return;
@@ -1799,10 +1817,11 @@ export class BrainEngine {
 				console.error("llm-wiki-brain: draw failed", err);
 				this.reportDrawFailure(this.opts.text("status.drawFailed", { error: err instanceof Error ? err.message : String(err) }));
 			}
+			const gap = busy && now - this.lastDraw < 120 ? now - this.lastDraw : 0;
 			this.lastDraw = now;
-			this.tune(performance.now() - t0);
+			this.tune(performance.now() - t0, gap);
 		}
-		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible) this.raf = window.requestAnimationFrame((t) => this.frame(t));
+		if ((busy || ambientOnly) && this.canvas.isConnected && this.visible && !document.hidden) this.raf = window.requestAnimationFrame((t) => this.frame(t));
 		else this.running = false;
 	}
 
@@ -2014,6 +2033,57 @@ export class BrainEngine {
 		ctx.fillText(label, cx / pts.length, y);
 	}
 
+	/** The base links of the brain (every link, in depth and strength bands, plus myelin and tracts), drawn on this.ctx. */
+	private paintLinks(dimAll: boolean): void {
+		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
+		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
+		for (let i = 0; i < this.edges.length; i++) {
+			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
+			if (a.off || b.off) continue;
+			if (e[3]) tracts.push(i);
+			const wq = strengthBand(this.ew[i] || 1);
+			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
+		}
+		const baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
+		for (let q = 2; q >= 0; q--) {
+			for (let wq = 0; wq < 3; wq++) {
+				const list = bk[q * 3 + wq];
+				if (!list.length) continue;
+				const base = (0.14 - q * 0.04) * WA[wq];
+				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
+				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
+				ctx.beginPath();
+				this.edgePath(list);
+				ctx.stroke();
+			}
+		}
+		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
+			const cap = ctx.lineCap;
+			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
+			ctx.lineCap = "butt";
+			ctx.lineWidth = baseW * 2.4;
+			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
+			ctx.beginPath();
+			for (const i of this.myel) {
+				const e = this.edges[i];
+				if (nodes[e[0]].off || nodes[e[1]].off) continue;
+				const c = this.ePts(i, true);
+				ctx.moveTo(c[0], c[1]);
+				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+			}
+			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.lineCap = cap;
+		}
+		if (tracts.length) {
+			ctx.lineWidth = dpr * 1.4;
+			ctx.strokeStyle = "rgba(" + this.mutedRGB.entity + "," + (dimAll ? 0.06 : 0.14) + ")";
+			ctx.beginPath();
+			this.edgePath(tracts);
+			ctx.stroke();
+		}
+	}
+
 	private draw(): void {
 		const ctx = this.ctx, dpr = this.dpr, nodes = this.nodes;
 		this.drawSeq++;
@@ -2074,8 +2144,8 @@ export class BrainEngine {
 				cc.globalAlpha = a * (1 - depth * fog);
 				cc.drawImage(sp as HTMLCanvasElement, ox + x * p * sc - r, oy + y * p * sc - r, r * 2, r * 2);
 			};
-			const LX = -0.5, LY = -0.55, LZ = -0.67; // light from the top left, in front
-			const rim = this.ghostRim, deep = this.ghostDeep;
+			const LX = -0.5 + 0.22 * Math.sin(this.yaw * 0.5), LY = -0.55, LZ = -0.67; // light from the top left, in front; it slips a little with the camera so the lit side keeps changing as the brain turns
+			const rim = this.quality > 0 ? this.ghostRim : null, deep = this.ghostDeep;
 			const drawPuff = (sp: HTMLCanvasElement, wx: number, wy: number, wz: number, wr: number, a: number) => {
 				const x = wx * this.camCy + wz * this.camSy, z1 = -wx * this.camSy + wz * this.camCy;
 				const y = wy * this.camCp - z1 * this.camSp, z2 = wy * this.camSp + z1 * this.camCp, p = DIST / (DIST + z2);
@@ -2093,6 +2163,13 @@ export class BrainEngine {
 				const lit = tx * LX + ty * LY + tz * LZ;
 				if (lit > 0.35) drawPuff(rim, q.x, q.y, q.z, q.r * 0.7, q.a * 0.55 * ((lit - 0.35) / 0.65)); // the side that faces the light catches a rim
 			}
+			if (deep && this.quality > 1) { // grooves and the fissure belong to high quality only: medium and low keep the plain cloud
+				for (const q of this.sulci) { // grooves between the gyri: only the ones on the near half show
+					const tz = (-q.nx * this.camSy + q.nz * this.camCy) * this.camCp + q.ny * this.camSp; // normal's depth in the view
+					if (tz < 0.1) drawPuff(deep, q.x, q.y, q.z, q.r, q.a * 0.7);
+				}
+			}
+			if (deep && this.quality > 1) for (const q of this.fissure) drawPuff(deep, q.x, q.y, q.z, q.r, q.a); // the crease between the hemispheres
 			const step = Math.max(1, Math.ceil(nodes.length / 220)); // at most ~220 of them, so a big vault costs no more than a small one
 			for (let i = 0; i < nodes.length; i += step) {
 				const n = nodes[i];
@@ -2112,65 +2189,48 @@ export class BrainEngine {
 			nb[f] = 1;
 			for (const j of fn.adj) nb[j] = 1;
 		}
-		const bk: number[][] = Array.from({ length: 9 }, () => []), tracts: number[] = []; // depth band (near, mid, far) x strength band (weak, normal, strong)
-		for (let i = 0; i < this.edges.length; i++) {
-			const e = this.edges[i], a = nodes[e[0]], b = nodes[e[1]];
-			if (a.off || b.off) continue;
-			if (e[3]) tracts.push(i);
-			const wq = strengthBand(this.ew[i] || 1);
-			bk[(this.quality ? Math.min(2, Math.floor(((a.pd + b.pd) / 2) * 3)) : 1) * 3 + wq].push(i);
-		}
-		const dimAll = fn || this.matchActive, baseW = Math.max(1, dpr * 0.9), WW = [0.85, 1, 1.45], WA = [0.75, 1, 1.3];
-		for (let q = 2; q >= 0; q--) {
-			for (let wq = 0; wq < 3; wq++) {
-				const list = bk[q * 3 + wq];
-				if (!list.length) continue;
-				const base = (0.14 - q * 0.04) * WA[wq];
-				ctx.lineWidth = Math.max(0.6 * dpr, baseW * WW[wq] * (1 - q * 0.14)); // strong links are thicker, far ones thinner
-				ctx.strokeStyle = "rgba(" + (this.edgeFog[q] ?? this.edgeRGB) + "," + (dimAll ? base * 0.3 : base) + ")";
-				ctx.beginPath();
-				this.edgePath(list);
-				ctx.stroke();
+		const dimAll = !!(fn || this.matchActive);
+		// With thousands of links the straight-line pass is most of the frame. While nothing moves (no drift, layout settled) it is
+		// the same picture every frame, so it is kept in a layer per state (focused or not) and redrawn only when the view changes.
+		if (this.simpleEdges && this.alpha < 0.02 && !this.drifting()) {
+			let ofs = 0, ews = 0;
+			for (let i = 0; i < nodes.length; i++) if (nodes[i].off) ofs += i + 1;
+			for (let i = 0; i < this.ew.length; i++) ews += this.ew[i];
+			const key = [this.camCy, this.camSy, this.camCp, this.camSp, this.S0, this.panX, this.panY, this.W, this.H, this.quality, nodes.length, this.edges.length, ofs, ews.toFixed(3), dpr].join();
+			const li = dimAll ? 1 : 0;
+			let L = this.linkLayers[li];
+			if (!L) L = this.linkLayers[li] = { cv: createEl("canvas"), key: "" };
+			if (L.key !== key) {
+				if (L.cv.width !== this.W || L.cv.height !== this.H) { L.cv.width = this.W; L.cv.height = this.H; }
+				const real = this.ctx, lc = L.cv.getContext("2d") as CanvasRenderingContext2D;
+				lc.clearRect(0, 0, this.W, this.H);
+				lc.lineCap = real.lineCap;
+				lc.lineJoin = real.lineJoin;
+				this.ctx = lc;
+				try { this.paintLinks(dimAll); } finally { this.ctx = real; }
+				L.key = key;
 			}
+			ctx.drawImage(L.cv, 0, 0);
+		} else {
+			this.linkLayers = [];
+			this.paintLinks(dimAll);
 		}
-		if (this.quality > 1 && !this.simpleEdges && !dimAll) { // the trunk roads between hubs wear a sheath with gaps: nodes of Ranvier
-			const cap = ctx.lineCap;
-			ctx.setLineDash([7 * dpr, 2.5 * dpr]);
-			ctx.lineCap = "butt";
-			ctx.lineWidth = baseW * 2.4;
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.07)";
-			ctx.beginPath();
-			for (const i of this.myel) {
-				const e = this.edges[i];
-				if (nodes[e[0]].off || nodes[e[1]].off) continue;
-				const c = this.ePts(i, true);
-				ctx.moveTo(c[0], c[1]);
-				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
-			}
-			ctx.stroke();
-			ctx.setLineDash([]);
-			ctx.lineCap = cap;
-		}
-		if (tracts.length) {
+		if (fn) { // the links of the focused page: each runs from the colour of one end to the colour of the other
 			ctx.lineWidth = dpr * 1.4;
-			ctx.strokeStyle = "rgba(" + this.mutedRGB.entity + "," + (dimAll ? 0.06 : 0.14) + ")";
-			ctx.beginPath();
-			this.edgePath(tracts);
-			ctx.stroke();
-		}
-		if (fn) {
-			ctx.strokeStyle = "rgba(" + this.edgeRGB + ",0.55)";
-			ctx.lineWidth = dpr * 1.4;
-			ctx.beginPath();
 			for (const e of this.edges) {
 				if (e[0] !== f && e[1] !== f) continue;
 				const a = nodes[e[0]], b = nodes[e[1]];
 				if (a.off || b.off) continue;
 				const c = this.ePts(this.edgeOf(e[0], e[1]), true);
+				const gr = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
+				gr.addColorStop(0, "rgba(" + (this.mutedRGB[a.vt] ?? this.edgeRGB) + ",0.7)");
+				gr.addColorStop(1, "rgba(" + (this.mutedRGB[b.vt] ?? this.edgeRGB) + ",0.7)");
+				ctx.strokeStyle = gr;
+				ctx.beginPath();
 				ctx.moveTo(c[0], c[1]);
 				ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+				ctx.stroke();
 			}
-			ctx.stroke();
 		}
 		this.drawRoutes();
 		const m = 70 * dpr, warn = this.tNow < this.flagUntil;
@@ -2210,8 +2270,19 @@ export class BrainEngine {
 				if (gl) ctx.drawImage(gl, n.px - size / 2, n.py - size / 2, size, size);
 				this.drawSoma(n, al);
 			} else {
-				const sp = this.sprites[n.vt];
-				if (sp) ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+				const at = this.spriteAtlas[n.vt], sp = at ? at[size <= 36 ? 0 : size <= 72 ? 1 : 2] : this.sprites[n.vt];
+				if (n.pr < 1.1 * dpr) { // too small to show a shape: one dot, no bitmap
+					ctx.fillStyle = "rgb(" + (this.mutedRGB[n.vt] ?? this.edgeRGB) + ")";
+					ctx.fillRect(n.px - 0.8 * dpr, n.py - 0.8 * dpr, 1.6 * dpr, 1.6 * dpr);
+				} else if (sp) {
+					const dof = n.pd > 0.6 ? (n.pd - 0.6) / 0.4 : 0; // out of focus: far cells spread a little and soften, as if the depth of field were shallow
+					if (dof > 0) {
+						const sz = size * (1 + dof * 0.3);
+						ctx.globalAlpha = al * (1 - dof * 0.25);
+						ctx.drawImage(sp, n.px - sz / 2, n.py - sz / 2, sz, sz);
+						ctx.globalAlpha = al;
+					} else ctx.drawImage(sp, n.px - size / 2, n.py - size / 2, size, size);
+				}
 			}
 			if (this.quality > 0 && n.pr > 2 * dpr) {
 				const rf = clamp((n.refr - this.tNow) / 600, 0, 1);
@@ -2298,6 +2369,7 @@ export class BrainEngine {
 		this.drawBroadcast();
 		this.drawSelection();
 		this.drawLabels(f, fn, nb);
+		this.drawGizmo();
 	}
 
 	private segPoint(seg: [number, number, number, number], t: number): [number, number] {
@@ -2377,8 +2449,9 @@ export class BrainEngine {
 		const px: number[] = [], py: number[] = [];
 		for (let i = 0; i < N; i++) {
 			const th = (i / N) * 2 * Math.PI;
-			px.push(Math.cos(th) * k[i]);
-			py.push(Math.sin(th) * k[i]);
+			const wob = 1 + 0.05 * Math.sin(th * 2 + n.drift[4]) + 0.035 * Math.sin(th * 3 + n.drift[5]) + 0.02 * Math.sin(th * 5 + n.drift[6]); // each cell's own lumpy outline, from its path
+			px.push(Math.cos(th) * k[i] * wob);
+			py.push(Math.sin(th) * k[i] * wob);
 		}
 		ctx.save();
 		ctx.translate(n.px, n.py); // the outline is built in unit space: the shared gradient follows the cell
@@ -2406,6 +2479,17 @@ export class BrainEngine {
 		ctx.lineWidth = Math.max(0.6 * dpr, R * 0.07) / R;
 		ctx.strokeStyle = this.light ? "rgba(20,30,50,0.4)" : "rgba(220,255,250,0.4)";
 		ctx.stroke();
+		if (R > 9 * dpr) { // Nissl granules: a few dark specks in the body
+			ctx.globalAlpha = al * 0.28;
+			ctx.fillStyle = this.light ? "rgb(20,30,60)" : "rgb(0,8,20)";
+			ctx.beginPath();
+			for (let g = 0; g < 5; g++) {
+				const a = n.drift[4] * (g + 1) * 1.7, d = 0.25 + 0.4 * ((g * 0.37 + n.drift[5]) % 1);
+				ctx.moveTo(Math.cos(a) * d + 0.07, Math.sin(a) * d);
+				ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 0.07, 0, 6.2832);
+			}
+			ctx.fill();
+		}
 		if (R > 4 * dpr) { // the type mark: circle, rounded square, diamond or triangle, so the type reads without its colour
 			const mk = MARKS[MARK_OF[n.vt] ?? "circle"], st = this.somaStops[n.vt];
 			ctx.globalAlpha = al * 0.6;
@@ -2432,7 +2516,7 @@ export class BrainEngine {
 			return [n.px + rx * k, n.py + ry * k];
 		};
 		for (const used of [false, true]) {
-			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [];
+			const a = (used ? Math.min(1, al * 0.9) : al * 0.4) * (front ? 1 : 0.75), tips: number[] = [], leaves: number[] = [], beads: number[] = [];
 			ctx.fillStyle = "rgba(" + col + "," + a + ")";
 			ctx.beginPath();
 			const strip = (pts: number[], wa: number, wb: number) => {
@@ -2449,6 +2533,10 @@ export class BrainEngine {
 				strip(quadPoints(n.px, n.py, cx, cy, tx, ty, arbor ? 7 : 4), w0, w1);
 				tips.push(tx, ty);
 				if (!arbor) continue;
+				for (const bt of [0.42, 0.7]) { // varicosities: small swellings along the branch
+					const q = 1 - bt;
+					beads.push(q * q * n.px + 2 * q * bt * cx + bt * bt * tx, q * q * n.py + 2 * q * bt * cy + bt * bt * ty);
+				}
 				if (!d.kids) d.kids = arborize(d, i, forkP, rng(hashStr(n.path) ^ Math.imul(i + 1, 7919)));
 				for (const kid of d.kids) {
 					if (kid.lvl > 1 && !deep) continue;
@@ -2478,6 +2566,10 @@ export class BrainEngine {
 			for (let i = 0; i < leaves.length; i += 2) {
 				ctx.moveTo(leaves[i] + lr, leaves[i + 1]);
 				ctx.arc(leaves[i], leaves[i + 1], lr, 0, 6.2832);
+			}
+			for (let i = 0; i < beads.length; i += 2) {
+				ctx.moveTo(beads[i] + lr * 1.1, beads[i + 1]);
+				ctx.arc(beads[i], beads[i + 1], lr * 1.1, 0, 6.2832);
 			}
 			ctx.fill();
 		}
@@ -2562,6 +2654,20 @@ export class BrainEngine {
 			ctx.arc(ends[i], ends[i + 1], rr * 2, 0, 6.2832);
 		}
 		ctx.fill();
+		if (R > 6 * dpr) { // growth cones: two short filopodia fan out from every terminal
+			ctx.strokeStyle = "rgba(" + col + "," + al * 0.3 + ")";
+			ctx.lineWidth = Math.max(0.6 * dpr, R * 0.05);
+			ctx.beginPath();
+			for (let i = 0; i < tips.length; i++) {
+				const [tx, ty, dx, dy] = tips[i], L = R * 0.55;
+				for (const sg of [-0.55, 0.55]) {
+					const c = Math.cos(sg), sn = Math.sin(sg);
+					ctx.moveTo(tx, ty);
+					ctx.lineTo(tx + (dx * c - dy * sn) * L, ty + (dx * sn + dy * c) * L);
+				}
+			}
+			ctx.stroke();
+		}
 		ctx.fillStyle = "rgba(" + col + "," + Math.min(0.7, al * 0.7) + ")";
 		ctx.beginPath();
 		for (let i = 0; i < ends.length; i += 2) {
@@ -2596,13 +2702,53 @@ export class BrainEngine {
 				ctx.arc(x, y, 4.2 * dpr, 0, 6.2832);
 				ctx.fill();
 			}
+			if (s.t > 0.88 && this.quality > 0) { // arriving: a few vesicles spill across the synaptic gap
+				const u = (s.t - 0.88) / 0.12;
+				ctx.fillStyle = tint;
+				ctx.globalAlpha = clamp(al, 0.1, 1) * (1 - u) * 0.8;
+				ctx.beginPath();
+				for (let k = 0; k < 4; k++) {
+					const an = k * 1.57 + s.e, d = u * 7 * dpr;
+					ctx.moveTo(x + Math.cos(an) * d + 0.9 * dpr, y + Math.sin(an) * d);
+					ctx.arc(x + Math.cos(an) * d, y + Math.sin(an) * d, 0.9 * dpr, 0, 6.2832);
+				}
+				ctx.fill();
+			}
 			ctx.globalAlpha = clamp(al, 0.1, 1) * 0.9;
-			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.quality > 0 ? tint : this.labelColor;
+			ctx.fillStyle = s.w < 0 ? "rgb(254,205,211)" : this.quality > 0 ? "rgb(" + mixRGB(this.mutedRGB[a.vt] ?? this.edgeRGB, this.light ? "40,48,70" : "255,255,255", 0.55) + ")" : this.labelColor; // a bright head over a tail in the type colour
 			ctx.beginPath();
 			ctx.arc(x, y, 1.8 * dpr, 0, 6.2832);
 			ctx.fill();
 		}
 		ctx.globalCompositeOperation = "source-over";
+		ctx.globalAlpha = 1;
+	}
+
+	/** A small orientation gizmo in the bottom right corner: the three world axes, turning with the camera, the nearest one drawn last and strongest. */
+	private drawGizmo(): void {
+		if (this.W < 360 || this.H < 300) return;
+		const ctx = this.ctx, dpr = this.dpr, cx = this.W - 44 * dpr, cy = this.H - 92 * dpr, L = 22 * dpr;
+		const axes: [string, number, number, number, string][] = [["x", 1, 0, 0, "239,112,112"], ["y", 0, -1, 0, "120,210,140"], ["z", 0, 0, 1, "110,160,250"]];
+		const pr = axes.map(([name, x, y, z, col]) => {
+			const x1 = x * this.camCy + z * this.camSy, z1 = -x * this.camSy + z * this.camCy;
+			return { name, col, sx: x1, sy: y * this.camCp - z1 * this.camSp, d: y * this.camSp + z1 * this.camCp };
+		}).sort((a, b) => b.d - a.d); // far first
+		ctx.lineCap = "round";
+		ctx.font = "600 " + Math.round(10 * dpr) + "px " + (getComputedStyle(this.canvas).fontFamily || "system-ui, sans-serif");
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		for (const a of pr) {
+			const near = clamp(0.55 - a.d * 0.45, 0.25, 1), ex = cx + a.sx * L, ey = cy + a.sy * L;
+			ctx.globalAlpha = near * 0.8;
+			ctx.strokeStyle = "rgb(" + a.col + ")";
+			ctx.lineWidth = 1.5 * dpr;
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.lineTo(ex, ey);
+			ctx.stroke();
+			ctx.fillStyle = this.labelColor;
+			ctx.fillText(a.name, cx + a.sx * (L + 8 * dpr), cy + a.sy * (L + 8 * dpr));
+		}
 		ctx.globalAlpha = 1;
 	}
 
