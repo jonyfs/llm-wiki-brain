@@ -100,7 +100,7 @@ Filters, search, selection and camera are saved with the pane, so the view comes
 
 ## Color, size and legend
 
-In the Filters panel: **Color by** type (default), folder, tag, age or links, and **Size by** links or recency. By type, the Types chips in the rail name the colors; for the other modes a legend in the corner names the four colors. Neuron detail (settings): Auto lowers detail when frames get slow, High keeps full neurons, Simple draws spheres.
+In the Filters panel: **Color by** type (default), folder, tag, age or links, and **Size by** links or recency. By type, the Types chips in the rail name the colors; for the other modes a legend in the corner names the four colors. Neuron detail (settings): Auto keeps full neurons and never switches level on its own (a vault over 6,000 notes starts one step lower), High keeps full neurons, Simple draws spheres.
 
 ## Export
 
